@@ -56,16 +56,23 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return trend;
   }
 
-  List<double> get _costTrend {
-    final sorted = List<FuelRecord>.from(_records)
-      ..sort((a, b) => a.date.compareTo(b.date));
-    return sorted.map((r) => r.totalCost).toList();
+  List<double> get _consumptionTrendRounded {
+    return _consumptionTrend.map((v) => double.parse(v.toStringAsFixed(2))).toList();
   }
 
-  List<double> get _litersTrend {
-    final sorted = List<FuelRecord>.from(_records)
-      ..sort((a, b) => a.date.compareTo(b.date));
-    return sorted.map((r) => r.liters).toList();
+  Map<String, double> get _last6MonthsCost {
+    final now = DateTime.now();
+    final cutoff = DateTime(now.year, now.month - 5);
+    final monthlyData = <String, double>{};
+    for (final record in _records) {
+      if (record.date.isBefore(cutoff)) continue;
+      final key =
+          '${record.date.year}-${record.date.month.toString().padLeft(2, '0')}';
+      monthlyData[key] = (monthlyData[key] ?? 0) + record.totalCost;
+    }
+    final sorted = monthlyData.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return Map.fromEntries(sorted);
   }
 
   double get _avgConsumption {
@@ -118,11 +125,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       const SizedBox(height: 16),
                       _buildConsumptionChart(),
                       const SizedBox(height: 16),
-                      _buildCostChart(),
-                      const SizedBox(height: 16),
-                      _buildLitersChart(),
-                      const SizedBox(height: 16),
-                      _buildMonthlyStats(),
+                      _buildMonthlyCostChart(),
                     ],
                   ),
                 ),
@@ -191,8 +194,19 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
+  double _niceInterval(double range, int targetTicks) {
+    if (range <= 0) return 0.5;
+    final rough = range / targetTicks;
+    final mag = (rough * 10).roundToDouble() / 10;
+    final candidates = [0.2, 0.5, 1.0, 2.0, 5.0];
+    for (final c in candidates) {
+      if (c >= mag) return c;
+    }
+    return mag;
+  }
+
   Widget _buildConsumptionChart() {
-    final trend = _consumptionTrend;
+    final trend = _consumptionTrendRounded;
     if (trend.isEmpty) return const SizedBox.shrink();
 
     final spots = trend
@@ -201,8 +215,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         .map((e) => FlSpot(e.key.toDouble(), e.value))
         .toList();
 
-    final minY = trend.reduce((a, b) => a < b ? a : b) - 0.5;
-    final maxY = trend.reduce((a, b) => a > b ? a : b) + 0.5;
+    final minVal = trend.reduce((a, b) => a < b ? a : b);
+    final maxVal = trend.reduce((a, b) => a > b ? a : b);
+    final interval = _niceInterval(maxVal - minVal, 4);
+    final minY = (minVal / interval).floor() * interval;
+    final maxY = (maxVal / interval).ceil() * interval;
 
     return Card(
       child: Padding(
@@ -226,7 +243,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
-                    horizontalInterval: (maxY - minY) / 4,
+                    horizontalInterval: interval,
                     getDrawingHorizontalLine: (value) => FlLine(
                       color: AppColors.divider,
                       strokeWidth: 1,
@@ -242,9 +259,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 40,
+                        interval: interval,
                         getTitlesWidget: (value, meta) {
                           return Text(
-                            value.toStringAsFixed(1),
+                            value.toStringAsFixed(2),
                             style: const TextStyle(
                               fontSize: 10,
                               color: AppColors.textSecondary,
@@ -313,16 +331,31 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  Widget _buildCostChart() {
-    if (_costTrend.isEmpty) return const SizedBox.shrink();
+  Widget _buildMonthlyCostChart() {
+    final monthlyData = _last6MonthsCost;
+    if (monthlyData.isEmpty) return const SizedBox.shrink();
 
-    final spots = _costTrend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value))
-        .toList();
+    final entries = monthlyData.entries.toList();
+    final maxY =
+        entries.map((e) => e.value).reduce((a, b) => a > b ? a : b) * 1.15;
 
-    final maxY = _costTrend.reduce((a, b) => a > b ? a : b) * 1.1;
+    final barGroups = <BarChartGroupData>[];
+    for (int i = 0; i < entries.length; i++) {
+      barGroups.add(
+        BarChartGroupData(
+          x: i,
+          barRods: [
+            BarChartRodData(
+              toY: entries[i].value,
+              color: AppColors.chartOrange,
+              width: 28,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(4)),
+            ),
+          ],
+        ),
+      );
+    }
 
     return Card(
       child: Padding(
@@ -331,7 +364,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              '加油费用趋势 (元)',
+              '最近6个月加油费',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -340,7 +373,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             ),
             const SizedBox(height: 16),
             SizedBox(
-              height: 200,
+              height: 220,
               child: BarChart(
                 BarChartData(
                   gridData: FlGridData(
@@ -349,6 +382,20 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                     getDrawingHorizontalLine: (value) => FlLine(
                       color: AppColors.divider,
                       strokeWidth: 1,
+                    ),
+                  ),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) {
+                        return BarTooltipItem(
+                          '¥${rod.toY.toStringAsFixed(2)}',
+                          const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        );
+                      },
                     ),
                   ),
                   titlesData: FlTitlesData(
@@ -362,8 +409,17 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                         showTitles: true,
                         reservedSize: 50,
                         getTitlesWidget: (value, meta) {
+                          if (value >= 1000) {
+                            return Text(
+                              '${(value / 1000).toStringAsFixed(1)}k',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.textSecondary,
+                              ),
+                            );
+                          }
                           return Text(
-                            '¥${(value / 100).toStringAsFixed(0)}',
+                            '¥${value.toStringAsFixed(0)}',
                             style: const TextStyle(
                               fontSize: 10,
                               color: AppColors.textSecondary,
@@ -372,181 +428,37 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                         },
                       ),
                     ),
-                    bottomTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  maxY: maxY,
-                  barGroups: spots
-                      .map((spot) => BarChartGroupData(
-                            x: spot.x.toInt(),
-                            barRods: [
-                              BarChartRodData(
-                                toY: spot.y,
-                                color: AppColors.chartOrange,
-                                width: 16,
-                                borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(4)),
-                              ),
-                            ],
-                          ))
-                      .toList(),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildLitersChart() {
-    if (_litersTrend.isEmpty) return const SizedBox.shrink();
-
-    final spots = _litersTrend
-        .asMap()
-        .entries
-        .map((e) => FlSpot(e.key.toDouble(), e.value))
-        .toList();
-
-    final maxY = _litersTrend.reduce((a, b) => a > b ? a : b) * 1.1;
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '加油量趋势 (升)',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 200,
-              child: BarChart(
-                BarChartData(
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    getDrawingHorizontalLine: (value) => FlLine(
-                      color: AppColors.divider,
-                      strokeWidth: 1,
-                    ),
-                  ),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                    leftTitles: AxisTitles(
+                    bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
-                        reservedSize: 40,
+                        reservedSize: 36,
                         getTitlesWidget: (value, meta) {
-                          return Text(
-                            value.toStringAsFixed(0),
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: AppColors.textSecondary,
+                          final idx = value.toInt();
+                          if (idx < 0 || idx >= entries.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final parts = entries[idx].key.split('-');
+                          final month = parts.length > 1 ? parts[1] : '';
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              '$month月',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                           );
                         },
                       ),
                     ),
-                    bottomTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
                   ),
                   borderData: FlBorderData(show: false),
                   maxY: maxY,
-                  barGroups: spots
-                      .map((spot) => BarChartGroupData(
-                            x: spot.x.toInt(),
-                            barRods: [
-                              BarChartRodData(
-                                toY: spot.y,
-                                color: AppColors.chartGreen,
-                                width: 16,
-                                borderRadius: const BorderRadius.vertical(
-                                    top: Radius.circular(4)),
-                              ),
-                            ],
-                          ))
-                      .toList(),
+                  barGroups: barGroups,
                 ),
               ),
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMonthlyStats() {
-    final monthlyData = <String, double>{};
-    for (final record in _records) {
-      final key =
-          '${record.date.year}-${record.date.month.toString().padLeft(2, '0')}';
-      monthlyData[key] = (monthlyData[key] ?? 0) + record.totalCost;
-    }
-
-    if (monthlyData.isEmpty) return const SizedBox.shrink();
-
-    final sorted = monthlyData.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              '月度花费',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: AppColors.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            ...sorted.map((entry) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: const BoxDecoration(
-                          color: AppColors.chartOrange,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        entry.key,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        FuelUtils.formatCurrency(entry.value),
-                        style: const TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
           ],
         ),
       ),

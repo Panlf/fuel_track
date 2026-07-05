@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/fuel_record.dart';
 import '../theme/app_theme.dart';
+import '../utils/station_history.dart';
 
 class AddEditFuelRecordScreen extends StatefulWidget {
   final String vehicleId;
@@ -30,12 +31,14 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
   DateTime _selectedDate = DateTime.now();
   bool _isFullTank = true;
   bool _isSaving = false;
+  List<String> _recentStations = [];
 
   bool get _isEditing => widget.existingRecord != null;
 
   @override
   void initState() {
     super.initState();
+    _loadStations();
     if (_isEditing) {
       final r = widget.existingRecord!;
       _odometerController.text = r.odometer.toString();
@@ -102,6 +105,10 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         await DatabaseHelper.instance.updateFuelRecord(record);
       } else {
         await DatabaseHelper.instance.insertFuelRecord(record);
+      }
+
+      if (_stationController.text.trim().isNotEmpty) {
+        await StationHistory.addStation(_stationController.text);
       }
 
       if (mounted) {
@@ -290,13 +297,55 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
   }
 
   Widget _buildStationField() {
-    return TextFormField(
-      controller: _stationController,
-      decoration: const InputDecoration(
-        labelText: '加油站 (选填)',
-        prefixIcon: Icon(Icons.place),
-        hintText: '例如: 中国石化朝阳路站',
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _stationController,
+          decoration: const InputDecoration(
+            labelText: '加油站 (选填)',
+            prefixIcon: Icon(Icons.place),
+            hintText: '例如: 中国石化朝阳路站',
+          ),
+        ),
+        if (_recentStations.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: _recentStations.map((station) {
+              final isSelected = _stationController.text == station;
+              return ActionChip(
+                label: Text(
+                  station,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isSelected ? Colors.white : AppColors.textPrimary,
+                  ),
+                ),
+                avatar: Icon(
+                  Icons.local_gas_station,
+                  size: 14,
+                  color: isSelected ? Colors.white : AppColors.primary,
+                ),
+                backgroundColor: isSelected
+                    ? AppColors.primary
+                    : AppColors.primary.withValues(alpha: 0.08),
+                side: BorderSide(
+                  color: isSelected
+                      ? AppColors.primary
+                      : AppColors.primary.withValues(alpha: 0.2),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _stationController.text = station;
+                  });
+                },
+              );
+            }).toList(),
+          ),
+        ],
+      ],
     );
   }
 
@@ -353,5 +402,10 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadStations() async {
+    _recentStations = await StationHistory.getStations();
+    if (mounted) setState(() {});
   }
 }

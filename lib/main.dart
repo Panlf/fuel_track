@@ -38,20 +38,23 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   int _currentIndex = 0;
+  int _refreshKey = 0;
 
-  final _screens = const [
-    DashboardScreen(),
-    FuelRecordsScreen(),
-    StatisticsScreen(),
-    VehicleManagementScreen(),
-  ];
+  void _onVehicleChanged() {
+    setState(() => _refreshKey++);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: [
+          DashboardScreen(key: ValueKey('dash_$_refreshKey')),
+          FuelRecordsScreen(key: ValueKey('records_$_refreshKey')),
+          StatisticsScreen(key: ValueKey('stats_$_refreshKey')),
+          VehicleManagementScreen(onVehicleChanged: _onVehicleChanged),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,

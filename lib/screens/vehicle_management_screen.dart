@@ -6,7 +6,9 @@ import '../theme/app_theme.dart';
 import 'add_edit_vehicle_screen.dart';
 
 class VehicleManagementScreen extends StatefulWidget {
-  const VehicleManagementScreen({super.key});
+  final VoidCallback? onVehicleChanged;
+
+  const VehicleManagementScreen({super.key, this.onVehicleChanged});
 
   @override
   State<VehicleManagementScreen> createState() =>
@@ -38,6 +40,7 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
   Future<void> _selectVehicle(Vehicle vehicle) async {
     await DatabaseHelper.instance.setSelectedVehicleId(vehicle.id);
     setState(() => _selectedVehicleId = vehicle.id);
+    widget.onVehicleChanged?.call();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -64,6 +67,7 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
               await DatabaseHelper.instance.deleteVehicle(vehicle.id);
               if (ctx.mounted) Navigator.pop(ctx);
               _loadData();
+              widget.onVehicleChanged?.call();
             },
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),
@@ -186,16 +190,16 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Row(
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 4,
                       children: [
                         _buildInfoChip(Icons.straighten,
                             '${vehicle.odometer} km'),
                         if (vehicle.fuelType != null &&
-                            vehicle.fuelType!.isNotEmpty) ...[
-                          const SizedBox(width: 8),
+                            vehicle.fuelType!.isNotEmpty)
                           _buildInfoChip(
                               Icons.local_gas_station, vehicle.fuelType!),
-                        ],
                       ],
                     ),
                   ],
