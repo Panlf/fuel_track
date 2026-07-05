@@ -47,3 +47,9 @@ app.*.map.json
 # Signing
 **/key.properties
 **/release-key.jks
+
+
+# Flutter auto-generated plugin registrant
+*/flutter/generated_plugin_registrant.*
+*/flutter/generated_plugins.cmake
+macos/Flutter/GeneratedPluginRegistrant.swift
