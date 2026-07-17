@@ -1,16 +1,24 @@
-# fuel_track
+# FuelTrack
 
-A new Flutter project.
+一款极简的燃油车油耗追踪应用，所有数据存储在本地，无需注册、无需联网。
 
-## Getting Started
+## 功能
 
-This project is a starting point for a Flutter application.
+- **加油记录** — 记录每次加油的里程、油量、单价、金额、加油站等信息
+- **油耗统计** — 自动计算平均油耗，生成油耗趋势折线图
+- **月度费用** — 柱状图展示最近 6 个月的加油花费
+- **多车管理** — 支持添加多辆车，一键切换
+- **数据导出** — 一键导出 Excel 文件，方便备份和分析
 
-A few resources to get you started if this is your first Flutter project:
+## 设计理念
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+- **极简** — 没有账号系统，没有云端同步，打开就用
+- **本地优先** — 所有数据存储在设备本地 SQLite 数据库，你的数据只属于你
+- **零依赖服务** — 不需要任何后端服务器，不需要网络权限
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 技术栈
+
+- Flutter + Dart
+- SQLite (sqflite) 本地数据库
+- fl_chart 图表库
+- shared_preferences 轻量配置存储

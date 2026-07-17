@@ -33,7 +33,7 @@ class FuelUtils {
 
   static String formatConsumption(double? consumption) {
     if (consumption == null) return '--';
-    return '${consumption.toStringAsFixed(2)} L/100km';
+    return consumption.toStringAsFixed(2);
   }
 
   static double? calculateConsumption(

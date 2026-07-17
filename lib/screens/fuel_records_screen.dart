@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:excel/excel.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 import '../database/database_helper.dart';
 import '../models/fuel_record.dart';
 import '../utils/fuel_utils.dart';
@@ -6,7 +10,9 @@ import '../widgets/fuel_record_card.dart';
 import 'add_edit_fuel_record_screen.dart';
 
 class FuelRecordsScreen extends StatefulWidget {
-  const FuelRecordsScreen({super.key});
+  final VoidCallback? onDataChanged;
+
+  const FuelRecordsScreen({super.key, this.onDataChanged});
 
   @override
   State<FuelRecordsScreen> createState() => _FuelRecordsScreenState();
@@ -58,6 +64,14 @@ class _FuelRecordsScreenState extends State<FuelRecordsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('加油记录'),
+        actions: [
+          if (_records.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.file_download_outlined),
+              onPressed: _exportToExcel,
+              tooltip: '导出Excel',
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -104,6 +118,7 @@ class _FuelRecordsScreenState extends State<FuelRecordsScreen> {
                             ),
                           );
                           _loadRecords();
+                          widget.onDataChanged?.call();
                         },
                         onDelete: () => _confirmDelete(_records[index]),
                       );
@@ -121,6 +136,7 @@ class _FuelRecordsScreenState extends State<FuelRecordsScreen> {
             ),
           );
           _loadRecords();
+          widget.onDataChanged?.call();
         },
         child: const Icon(Icons.add, size: 28),
       ),
@@ -143,11 +159,90 @@ class _FuelRecordsScreenState extends State<FuelRecordsScreen> {
               await DatabaseHelper.instance.deleteFuelRecord(record.id);
               if (ctx.mounted) Navigator.pop(ctx);
               _loadRecords();
+              widget.onDataChanged?.call();
             },
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _exportToExcel() async {
+    try {
+      final sorted = List<FuelRecord>.from(_records)
+        ..sort((a, b) => a.date.compareTo(b.date));
+
+      final excel = Excel.createExcel();
+      excel.delete('Sheet1');
+      final sheet = excel['加油记录'];
+
+      final headerStyle = CellStyle(
+        bold: true,
+        fontSize: 12,
+      );
+
+      final headers = ['日期', '里程(km)', '加油量(L)', '单价(¥/L)', '总价(¥)', '油品', '加油站', '备注'];
+      for (int i = 0; i < headers.length; i++) {
+        final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 0));
+        cell.value = TextCellValue(headers[i]);
+        cell.cellStyle = headerStyle;
+      }
+
+      for (int i = 0; i < sorted.length; i++) {
+        final record = sorted[i];
+        final row = i + 1;
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: row)).value =
+            TextCellValue(FuelUtils.formatDateFull(record.date));
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: row)).value =
+            IntCellValue(record.odometer);
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: row)).value =
+            DoubleCellValue(record.liters);
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: row)).value =
+            DoubleCellValue(record.pricePerLiter);
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: row)).value =
+            DoubleCellValue(record.totalCost);
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: row)).value =
+            TextCellValue(record.fuelType ?? '');
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: row)).value =
+            TextCellValue(record.station ?? '');
+        sheet.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: row)).value =
+            TextCellValue(record.notes ?? '');
+      }
+
+      for (int i = 0; i < headers.length; i++) {
+        sheet.setColumnWidth(i, 16);
+      }
+
+      final dir = await getApplicationDocumentsDirectory();
+      final fileName = '加油记录_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final filePath = '${dir.path}/$fileName';
+      final fileBytes = excel.save();
+
+      if (fileBytes != null) {
+        final file = File(filePath);
+        await file.writeAsBytes(fileBytes);
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('已导出到: $filePath'),
+              action: SnackBarAction(
+                label: '分享',
+                onPressed: () {
+                  Share.shareXFiles([XFile(filePath)]);
+                },
+              ),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出失败: $e')),
+        );
+      }
+    }
   }
 }

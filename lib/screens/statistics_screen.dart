@@ -151,8 +151,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             Expanded(
               child: StatsCard(
-                title: '平均油耗',
-                value: '${_avgConsumption.toStringAsFixed(2)} L/100km',
+                title: '平均油耗（百公里）',
+                value: '${_avgConsumption.toStringAsFixed(2)} L',
                 icon: Icons.speed,
                 iconColor: AppColors.chartBlue,
               ),
@@ -160,7 +160,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
             const SizedBox(width: 8),
             Expanded(
               child: StatsCard(
-                title: '总花费',
+                title: '总花费（元）',
                 value: FuelUtils.formatCurrency(_totalCost),
                 icon: Icons.account_balance_wallet,
                 iconColor: AppColors.accent,
@@ -173,7 +173,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
           children: [
             Expanded(
               child: StatsCard(
-                title: '总加油量',
+                title: '总加油量（升）',
                 value: FuelUtils.formatLiters(_totalLiters),
                 icon: Icons.local_gas_station,
                 iconColor: AppColors.success,
@@ -275,6 +275,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 30,
+                        interval: 1,
                         getTitlesWidget: (value, meta) {
                           final idx = value.toInt();
                           if (idx < 0 || idx >= trend.length) {
@@ -292,6 +293,22 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                           );
                         },
                       ),
+                    ),
+                  ),
+                  lineTouchData: LineTouchData(
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipItems: (touchedSpots) {
+                        return touchedSpots.map((spot) {
+                          return LineTooltipItem(
+                            '${spot.y.toStringAsFixed(2)} L/100km',
+                            const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        }).toList();
+                      },
                     ),
                   ),
                   borderData: FlBorderData(show: false),
@@ -336,8 +353,10 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     if (monthlyData.isEmpty) return const SizedBox.shrink();
 
     final entries = monthlyData.entries.toList();
-    final maxY =
-        entries.map((e) => e.value).reduce((a, b) => a > b ? a : b) * 1.15;
+    final maxValue =
+        entries.map((e) => e.value).reduce((a, b) => a > b ? a : b);
+    final costInterval = _niceInterval(maxValue, 4);
+    final maxY = (maxValue / costInterval).ceil() * costInterval;
 
     final barGroups = <BarChartGroupData>[];
     for (int i = 0; i < entries.length; i++) {
@@ -379,6 +398,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: false,
+                    horizontalInterval: costInterval,
                     getDrawingHorizontalLine: (value) => FlLine(
                       color: AppColors.divider,
                       strokeWidth: 1,
@@ -408,6 +428,7 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 50,
+                        interval: costInterval,
                         getTitlesWidget: (value, meta) {
                           if (value >= 1000) {
                             return Text(

@@ -11,7 +11,9 @@ import 'add_edit_fuel_record_screen.dart';
 import 'fuel_records_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({super.key});
+  final VoidCallback? onDataChanged;
+
+  const DashboardScreen({super.key, this.onDataChanged});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -201,6 +203,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           );
           _loadData();
+          widget.onDataChanged?.call();
         },
         child: const Icon(Icons.add, size: 28),
       ),
@@ -467,8 +470,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Expanded(
                 child: StatsCard(
-                  title: '平均油耗',
-                  value: FuelUtils.formatConsumption(_avgConsumption),
+                  title: '平均油耗（百公里）',
+                  value: '${FuelUtils.formatConsumption(_avgConsumption)} L',
                   icon: Icons.speed,
                   iconColor: AppColors.chartBlue,
                 ),
@@ -476,7 +479,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: StatsCard(
-                  title: '总花费',
+                  title: '总花费（元）',
                   value: FuelUtils.formatCurrency(_totalCost),
                   subtitle: '共 $_totalRecords 次加油',
                   icon: Icons.account_balance_wallet,
@@ -490,7 +493,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             children: [
               Expanded(
                 child: StatsCard(
-                  title: '总加油量',
+                  title: '总加油量（升）',
                   value: FuelUtils.formatLiters(_totalLiters),
                   icon: Icons.local_gas_station,
                   iconColor: AppColors.success,
@@ -499,7 +502,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: StatsCard(
-                  title: '当前里程',
+                  title: '当前里程（km）',
                   value: FuelUtils.formatOdometer(
                       _currentVehicle?.odometer ?? 0),
                   icon: Icons.straighten,
@@ -592,6 +595,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     );
                     _loadData();
+                    widget.onDataChanged?.call();
                   },
                 ))),
           const SizedBox(height: 80),

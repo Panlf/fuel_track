@@ -44,14 +44,18 @@ class _MainScreenState extends State<MainScreen> {
     setState(() => _refreshKey++);
   }
 
+  void _onDataChanged() {
+    setState(() => _refreshKey++);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          DashboardScreen(key: ValueKey('dash_$_refreshKey')),
-          FuelRecordsScreen(key: ValueKey('records_$_refreshKey')),
+          DashboardScreen(key: ValueKey('dash_$_refreshKey'), onDataChanged: _onDataChanged),
+          FuelRecordsScreen(key: ValueKey('records_$_refreshKey'), onDataChanged: _onDataChanged),
           StatisticsScreen(key: ValueKey('stats_$_refreshKey')),
           VehicleManagementScreen(onVehicleChanged: _onVehicleChanged),
         ],
