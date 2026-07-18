@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import '../utils/fuel_utils.dart';
 import '../widgets/stats_card.dart';
 import '../widgets/fuel_record_card.dart';
+import '../widgets/fuel_price_card.dart';
 import 'add_edit_fuel_record_screen.dart';
 import 'fuel_records_screen.dart';
 
@@ -28,6 +29,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   double _totalCost = 0;
   double _totalLiters = 0;
   int _totalRecords = 0;
+  int _fuelRefreshKey = 0;
 
   @override
   void initState() {
@@ -92,7 +94,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (e) {
       debugPrint('Error loading data: $e');
     }
-    setState(() => _isLoading = false);
+    setState(() {
+      _isLoading = false;
+      _fuelRefreshKey++;
+    });
   }
 
   Future<void> _switchVehicle(Vehicle vehicle) async {
@@ -184,6 +189,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     sliver: SliverList(
                       delegate: SliverChildListDelegate([
                         _buildQuickStats(),
+                        const SizedBox(height: 8),
+                        FuelPriceCard(refreshKey: _fuelRefreshKey),
                         const SizedBox(height: 8),
                         _buildRecentSection(),
                       ]),

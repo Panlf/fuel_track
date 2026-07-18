@@ -48,6 +48,8 @@ app.*.map.json
 **/key.properties
 **/release-key.jks
 
+# Documentation
+docs/
 
 # Flutter auto-generated plugin registrant
 */flutter/generated_plugin_registrant.*

@@ -43,6 +43,10 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要获取您的位置来查询当地油价</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>需要获取您的位置来查询当地油价</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 </dict>
