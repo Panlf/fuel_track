@@ -36,11 +36,12 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
         // 手动切换：直接用当前省份，不定位
         province = _currentProvince;
       } else {
-        // 优先定位，定位失败才用缓存
+        // 优先定位
         province = await FuelPriceService.detectProvinceFromLocation();
         if (province != null) {
           await FuelPriceService.setSelectedProvince(province);
-        } else {
+        } else if (!forceRefresh) {
+          // 仅首次加载时回退到缓存，刷新时不回退
           province = await FuelPriceService.getSelectedProvince();
         }
       }
@@ -150,7 +151,6 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                         : null,
                     onTap: () async {
                       Navigator.pop(ctx);
-                      await FuelPriceService.setSelectedProvince(province);
                       _currentProvince = province;
                       _loadFuelPrice(useCurrentProvince: true);
                     },
