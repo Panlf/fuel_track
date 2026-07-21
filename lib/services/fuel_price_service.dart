@@ -100,8 +100,8 @@ class FuelPriceService {
       print('[FuelPrice] 开始获取位置...');
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 15),
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 30),
         ),
       );
 
@@ -110,7 +110,7 @@ class FuelPriceService {
       List<Placemark> placemarks = await placemarkFromCoordinates(
         position.latitude,
         position.longitude,
-      );
+      ).timeout(const Duration(seconds: 10), onTimeout: () => []);
 
       print('[FuelPrice] 逆地理编码结果数: ${placemarks.length}');
 
