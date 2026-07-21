@@ -36,13 +36,10 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
         // 手动切换：直接用当前省份，不定位
         province = _currentProvince;
       } else {
-        // 优先定位
+        // 始终尝试定位，不回退到缓存
         province = await FuelPriceService.detectProvinceFromLocation();
         if (province != null) {
           await FuelPriceService.setSelectedProvince(province);
-        } else if (!forceRefresh) {
-          // 仅首次加载时回退到缓存，刷新时不回退
-          province = await FuelPriceService.getSelectedProvince();
         }
       }
 
