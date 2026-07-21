@@ -14,18 +14,14 @@ class FuelPriceCard extends StatefulWidget {
 class _FuelPriceCardState extends State<FuelPriceCard> {
   FuelPrice? _fuelPrice;
   String? _currentProvince;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFuelPrice();
-  }
+  bool _isLoading = false;
+  bool _isExpanded = false;
+  bool _hasLoaded = false;
 
   @override
   void didUpdateWidget(covariant FuelPriceCard oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.refreshKey != oldWidget.refreshKey) {
+    if (widget.refreshKey != oldWidget.refreshKey && _isExpanded) {
       _loadFuelPrice(forceRefresh: true);
     }
   }
@@ -69,12 +65,23 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
           _currentProvince = province;
           _fuelPrice = price;
           _isLoading = false;
+          _hasLoaded = true;
         });
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _hasLoaded = true;
+        });
       }
+    }
+  }
+
+  void _toggleExpand() {
+    setState(() => _isExpanded = !_isExpanded);
+    if (_isExpanded && !_hasLoaded) {
+      _loadFuelPrice();
     }
   }
 
@@ -167,79 +174,131 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.local_gas_station,
-                  color: AppColors.accent,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  '今日油价',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.textPrimary,
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: _toggleExpand,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.local_gas_station,
+                    color: AppColors.accent,
+                    size: 20,
                   ),
-                ),
-                const Spacer(),
-                if (_currentProvince != null)
-                  GestureDetector(
-                    onTap: _showProvinceSelector,
-                    child: Container(
+                  const SizedBox(width: 8),
+                  const Text(
+                    '今日油价',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  if (_currentProvince != null && !_isExpanded) ...[
+                    const SizedBox(width: 8),
+                    Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 5,
+                        horizontal: 8,
+                        vertical: 3,
                       ),
                       decoration: BoxDecoration(
                         color: AppColors.primary.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.location_on,
-                            color: AppColors.primary,
-                            size: 14,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _currentProvince!,
-                            style: const TextStyle(
-                              color: AppColors.primary,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                      child: Text(
+                        _currentProvince!,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
                     ),
+                  ],
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _isExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      color: AppColors.textSecondary,
+                      size: 22,
+                    ),
                   ),
-              ],
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            if (_isLoading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(20),
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              )
-            else if (_currentProvince == null)
-              _buildSelectProvince()
-            else if (_fuelPrice != null)
-              _buildPriceGrid()
-            else
-              _buildErrorState(),
-          ],
-        ),
+          ),
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              child: Column(
+                children: [
+                  if (_currentProvince != null)
+                    GestureDetector(
+                      onTap: _showProvinceSelector,
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.location_on,
+                              color: AppColors.primary,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _currentProvince!,
+                              style: const TextStyle(
+                                color: AppColors.primary,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.keyboard_arrow_down,
+                              color: AppColors.primary,
+                              size: 14,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  if (_isLoading)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else if (_currentProvince == null)
+                    _buildSelectProvince()
+                  else if (_fuelPrice != null)
+                    _buildPriceGrid()
+                  else
+                    _buildErrorState(),
+                ],
+              ),
+            ),
+            crossFadeState: _isExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 250),
+          ),
+        ],
       ),
     );
   }
