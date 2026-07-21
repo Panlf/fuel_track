@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -73,43 +73,22 @@ class FuelPriceService {
     await prefs.setString(_selectedProvinceKey, province);
   }
 
+  static const _channel = MethodChannel('com.github.panlf.fueltrack/location');
+
   static Future<String?> detectProvinceFromLocation() async {
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        print('[FuelPrice] 定位服务未开启');
-        return null;
-      }
+      print('[FuelPrice] 调用原生定位...');
+      final result = await _channel.invokeMethod('getCurrentLocation');
+      print('[FuelPrice] 原生定位成功: ${result}');
 
-      LocationPermission permission = await Geolocator.checkPermission();
-      print('[FuelPrice] 当前权限状态: $permission');
-
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        print('[FuelPrice] 请求后权限状态: $permission');
-        if (permission == LocationPermission.denied) {
-          print('[FuelPrice] 定位权限被拒绝');
-          return null;
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        print('[FuelPrice] 定位权限被永久拒绝');
-        return null;
-      }
-
-      print('[FuelPrice] 开始获取位置...');
-      Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.low,
-          timeLimit: Duration(seconds: 10),
-        ),
-      );
-
-      print('[FuelPrice] 获取位置成功: ${position.latitude}, ${position.longitude}');
+      final latitude = result['latitude'] as double;
+      final longitude = result['longitude'] as double;
+      final provider = result['provider'] as String;
+      print('[FuelPrice] 坐标: $latitude, $longitude, 提供者: $provider');
 
       List<Placemark> placemarks = await placemarkFromCoordinates(
-        position.latitude,
-        position.longitude,
+        latitude,
+        longitude,
       ).timeout(const Duration(seconds: 10), onTimeout: () => []);
 
       print('[FuelPrice] 逆地理编码结果数: ${placemarks.length}');
@@ -121,6 +100,8 @@ class FuelPriceService {
           return _normalizeProvince(province);
         }
       }
+    } on PlatformException catch (e) {
+      print('[FuelPrice] 原生定位失败: ${e.code} - ${e.message}');
     } catch (e, stackTrace) {
       print('[FuelPrice] 定位失败: $e');
       print('[FuelPrice] 堆栈: $stackTrace');
