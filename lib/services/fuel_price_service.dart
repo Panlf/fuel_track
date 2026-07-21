@@ -100,8 +100,8 @@ class FuelPriceService {
       print('[FuelPrice] 开始获取位置...');
       Position position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.medium,
-          timeLimit: Duration(seconds: 30),
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 10),
         ),
       );
 
