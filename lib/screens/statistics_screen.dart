@@ -60,6 +60,20 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     return _consumptionTrend.map((v) => double.parse(v.toStringAsFixed(2))).toList();
   }
 
+  List<double> get _costPerKmTrend {
+    if (_records.length < 2) return [];
+    final sorted = List<FuelRecord>.from(_records)
+      ..sort((a, b) => a.odometer.compareTo(b.odometer));
+    final trend = <double>[];
+    for (int i = 1; i < sorted.length; i++) {
+      final distance = sorted[i].odometer - sorted[i - 1].odometer;
+      if (distance > 0) {
+        trend.add(double.parse((sorted[i].totalCost / distance).toStringAsFixed(3)));
+      }
+    }
+    return trend;
+  }
+
   Map<String, double> get _last6MonthsCost {
     final now = DateTime.now();
     final cutoff = DateTime(now.year, now.month - 5);
@@ -124,6 +138,8 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       _buildSummaryCards(),
                       const SizedBox(height: 16),
                       _buildConsumptionChart(),
+                      const SizedBox(height: 16),
+                      _buildCostPerKmChart(),
                       const SizedBox(height: 16),
                       _buildMonthlyCostChart(),
                     ],
@@ -336,6 +352,151 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                       belowBarData: BarAreaData(
                         show: true,
                         color: AppColors.chartBlue.withValues(alpha: 0.1),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCostPerKmChart() {
+    final trend = _costPerKmTrend;
+    if (trend.isEmpty) return const SizedBox.shrink();
+
+    final spots = trend
+        .asMap()
+        .entries
+        .map((e) => FlSpot(e.key.toDouble(), e.value))
+        .toList();
+
+    final minVal = trend.reduce((a, b) => a < b ? a : b);
+    final maxVal = trend.reduce((a, b) => a > b ? a : b);
+    final interval = _niceInterval(maxVal - minVal, 4);
+    final minY = (minVal / interval).floor() * interval < 0
+        ? 0.0
+        : (minVal / interval).floor() * interval;
+    final maxY = (maxVal / interval).ceil() * interval;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              '每公里花费 (元/km)',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              height: 200,
+              child: LineChart(
+                LineChartData(
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    horizontalInterval: interval,
+                    getDrawingHorizontalLine: (value) => FlLine(
+                      color: AppColors.divider,
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 50,
+                        interval: interval,
+                        getTitlesWidget: (value, meta) {
+                          return Text(
+                            '¥${value.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: AppColors.textSecondary,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 30,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          final idx = value.toInt();
+                          if (idx < 0 || idx >= trend.length) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              '${idx + 1}',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  lineTouchData: LineTouchData(
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipItems: (touchedSpots) {
+                        return touchedSpots.map((spot) {
+                          return LineTooltipItem(
+                            '¥${spot.y.toStringAsFixed(3)}/km',
+                            const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          );
+                        }).toList();
+                      },
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  minX: 0,
+                  maxX: (trend.length - 1).toDouble(),
+                  minY: minY,
+                  maxY: maxY,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: spots,
+                      isCurved: true,
+                      color: AppColors.chartGreen,
+                      barWidth: 3,
+                      isStrokeCapRound: true,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) =>
+                            FlDotCirclePainter(
+                          radius: 4,
+                          color: Colors.white,
+                          strokeColor: AppColors.chartGreen,
+                          strokeWidth: 2,
+                        ),
+                      ),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: AppColors.chartGreen.withValues(alpha: 0.1),
                       ),
                     ),
                   ],

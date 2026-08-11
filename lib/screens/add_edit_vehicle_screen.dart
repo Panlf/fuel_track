@@ -22,8 +22,10 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   final _brandController = TextEditingController();
   final _modelController = TextEditingController();
   final _yearController = TextEditingController();
-  final _fuelTypeController = TextEditingController();
+  String? _selectedFuelType;
   final _tankCapacityController = TextEditingController();
+
+  static const List<String> _fuelTypes = ['92号', '95号', '98号'];
   final _odometerController = TextEditingController();
 
   String? _imagePath;
@@ -41,7 +43,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       _brandController.text = v.brand ?? '';
       _modelController.text = v.model ?? '';
       _yearController.text = v.year?.toString() ?? '';
-      _fuelTypeController.text = v.fuelType ?? '';
+      _selectedFuelType = v.fuelType;
       _tankCapacityController.text = v.tankCapacity?.toString() ?? '';
       _odometerController.text = v.odometer.toString();
       _imagePath = v.imagePath;
@@ -54,7 +56,6 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     _brandController.dispose();
     _modelController.dispose();
     _yearController.dispose();
-    _fuelTypeController.dispose();
     _tankCapacityController.dispose();
     _odometerController.dispose();
     super.dispose();
@@ -161,9 +162,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
             ? null
             : _modelController.text.trim(),
         year: int.tryParse(_yearController.text),
-        fuelType: _fuelTypeController.text.trim().isEmpty
-            ? null
-            : _fuelTypeController.text.trim(),
+        fuelType: _selectedFuelType,
         tankCapacity: double.tryParse(_tankCapacityController.text),
         odometer: int.tryParse(_odometerController.text) ?? 0,
         imagePath: _imagePath,
@@ -392,13 +391,16 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   }
 
   Widget _buildFuelTypeField() {
-    return TextFormField(
-      controller: _fuelTypeController,
+    return DropdownButtonFormField<String>(
+      value: _selectedFuelType,
       decoration: const InputDecoration(
         labelText: '油品类型',
         prefixIcon: Icon(Icons.local_gas_station),
-        hintText: '例如: 95号汽油',
       ),
+      items: _fuelTypes
+          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+          .toList(),
+      onChanged: (value) => setState(() => _selectedFuelType = value),
     );
   }
 

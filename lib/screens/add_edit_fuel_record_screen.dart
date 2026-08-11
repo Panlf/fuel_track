@@ -28,6 +28,8 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
   final _stationController = TextEditingController();
   final _notesController = TextEditingController();
 
+  static const List<String> _fuelTypes = ['92号', '95号', '98号'];
+  String? _selectedFuelType;
   DateTime _selectedDate = DateTime.now();
   bool _isFullTank = true;
   bool _isSaving = false;
@@ -39,6 +41,7 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
   void initState() {
     super.initState();
     _loadStations();
+    _loadVehicleFuelType();
     if (_isEditing) {
       final r = widget.existingRecord!;
       _odometerController.text = r.odometer.toString();
@@ -48,6 +51,16 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
       _notesController.text = r.notes ?? '';
       _selectedDate = r.date;
       _isFullTank = r.isFullTank;
+      _selectedFuelType = r.fuelType;
+    }
+  }
+
+  Future<void> _loadVehicleFuelType() async {
+    if (_isEditing) return; // editing uses the record's own fuel type
+    final vehicles = await DatabaseHelper.instance.getAllVehicles();
+    final vehicle = vehicles.where((v) => v.id == widget.vehicleId).firstOrNull;
+    if (vehicle?.fuelType != null && mounted) {
+      setState(() => _selectedFuelType = vehicle!.fuelType);
     }
   }
 
@@ -95,6 +108,7 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         liters: double.parse(_litersController.text),
         pricePerLiter: double.parse(_priceController.text),
         isFullTank: _isFullTank,
+        fuelType: _selectedFuelType,
         station: _stationController.text.isEmpty
             ? null
             : _stationController.text,
@@ -154,6 +168,8 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
           children: [
             _buildDateField(),
             const SizedBox(height: 16),
+            _buildFuelTypeField(),
+            const SizedBox(height: 16),
             _buildOdometerField(),
             const SizedBox(height: 16),
             _buildLitersField(),
@@ -188,6 +204,24 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         onTap: _selectDate,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
+    );
+  }
+
+  Widget _buildFuelTypeField() {
+    return DropdownButtonFormField<String>(
+      value: _selectedFuelType,
+      decoration: const InputDecoration(
+        labelText: '油品',
+        prefixIcon: Icon(Icons.local_gas_station),
+      ),
+      items: _fuelTypes
+          .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+          .toList(),
+      onChanged: (value) => setState(() => _selectedFuelType = value),
+      validator: (value) {
+        if (value == null || value.isEmpty) return '请选择油品';
+        return null;
+      },
     );
   }
 

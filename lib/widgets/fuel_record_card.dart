@@ -79,6 +79,10 @@ class FuelRecordCard extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
+                  if (record.fuelType != null && record.fuelType!.isNotEmpty) ...[
+                    _buildInfoChip(Icons.local_gas_station, record.fuelType!),
+                    const SizedBox(width: 8),
+                  ],
                   _buildInfoChip(
                       Icons.water_drop, '${record.liters.toStringAsFixed(2)} L'),
                   const SizedBox(width: 8),
