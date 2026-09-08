@@ -1,3 +1,4 @@
+/// 加油统计汇总结果。
 class FuelStats {
   final double avgConsumption;
   final double totalCost;

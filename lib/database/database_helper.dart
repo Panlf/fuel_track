@@ -1,30 +1,40 @@
-import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../models/vehicle.dart';
+import 'package:sqflite/sqflite.dart';
+
 import '../models/fuel_record.dart';
+import '../models/vehicle.dart';
 
+/// SQLite 数据库访问层（单例）。
+///
+/// 负责建表/迁移、车辆与加油记录的 CRUD，以及当前所选车辆的持久化。
 class DatabaseHelper {
-  static final DatabaseHelper instance = DatabaseHelper._init();
-  static Database? _database;
-
   DatabaseHelper._init();
 
-  Future<Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDB('fuel_track.db');
-    return _database!;
+  static final DatabaseHelper instance = DatabaseHelper._init();
+
+  static Database? _database;
+
+  /// 缓存打开中的 Future，避免并发首访时重复初始化连接。
+  static Future<Database>? _opening;
+
+  Future<Database> get database {
+    final existing = _database;
+    if (existing != null) return Future.value(existing);
+    return _opening ??= _initDB('fuel_track.db');
   }
 
   Future<Database> _initDB(String filePath) async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, filePath);
-    return await openDatabase(
+    final db = await openDatabase(
       path,
       version: 2,
       onCreate: _createDB,
       onUpgrade: _onUpgrade,
     );
+    _database = db;
+    return db;
   }
 
   Future<void> _createDB(Database db, int version) async {
@@ -61,9 +71,11 @@ class DatabaseHelper {
     ''');
 
     await db.execute(
-        'CREATE INDEX idx_fuel_records_vehicle ON fuel_records(vehicleId)');
+      'CREATE INDEX idx_fuel_records_vehicle ON fuel_records(vehicleId)',
+    );
     await db.execute(
-        'CREATE INDEX idx_fuel_records_date ON fuel_records(date)');
+      'CREATE INDEX idx_fuel_records_date ON fuel_records(date)',
+    );
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -72,7 +84,10 @@ class DatabaseHelper {
     }
   }
 
-  // Selected vehicle persistence
+  // ---------------------------------------------------------------------------
+  // 当前所选车辆（SharedPreferences 持久化）
+  // ---------------------------------------------------------------------------
+
   Future<String?> getSelectedVehicleId() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('selected_vehicle_id');
@@ -83,17 +98,23 @@ class DatabaseHelper {
     await prefs.setString('selected_vehicle_id', id);
   }
 
-  // Vehicle CRUD
+  // ---------------------------------------------------------------------------
+  // 车辆 CRUD
+  // ---------------------------------------------------------------------------
+
   Future<void> insertVehicle(Vehicle vehicle) async {
     final db = await database;
-    await db.insert('vehicles', vehicle.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
+    await db.insert(
+      'vehicles',
+      vehicle.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<List<Vehicle>> getAllVehicles() async {
     final db = await database;
     final result = await db.query('vehicles', orderBy: 'createdAt DESC');
-    return result.map((map) => Vehicle.fromMap(map)).toList();
+    return result.map(Vehicle.fromMap).toList();
   }
 
   Future<Vehicle?> getVehicle(String id) async {
@@ -105,14 +126,22 @@ class DatabaseHelper {
 
   Future<void> updateVehicle(Vehicle vehicle) async {
     final db = await database;
-    await db.update('vehicles', vehicle.toMap(),
-        where: 'id = ?', whereArgs: [vehicle.id]);
+    await db.update(
+      'vehicles',
+      vehicle.toMap(),
+      where: 'id = ?',
+      whereArgs: [vehicle.id],
+    );
   }
 
+  /// 删除车辆及其全部加油记录；两表操作在事务内保证原子性。
+  /// 若删除的是当前所选车辆，自动切换到剩余的第一辆（或清除选择）。
   Future<void> deleteVehicle(String id) async {
     final db = await database;
-    await db.delete('fuel_records', where: 'vehicleId = ?', whereArgs: [id]);
-    await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
+    await db.transaction((txn) async {
+      await txn.delete('fuel_records', where: 'vehicleId = ?', whereArgs: [id]);
+      await txn.delete('vehicles', where: 'id = ?', whereArgs: [id]);
+    });
 
     final selectedId = await getSelectedVehicleId();
     if (selectedId == id) {
@@ -126,41 +155,58 @@ class DatabaseHelper {
     }
   }
 
-  // FuelRecord CRUD
+  // ---------------------------------------------------------------------------
+  // 加油记录 CRUD
+  // ---------------------------------------------------------------------------
+
+  /// 插入记录并同步车辆里程表；两步在事务内保证原子性。
   Future<void> insertFuelRecord(FuelRecord record) async {
     final db = await database;
-    await db.insert('fuel_records', record.toMap(),
-        conflictAlgorithm: ConflictAlgorithm.replace);
-
-    await db.update(
-      'vehicles',
-      {'odometer': record.odometer},
-      where: 'id = ?',
-      whereArgs: [record.vehicleId],
-    );
+    await db.transaction((txn) async {
+      await txn.insert(
+        'fuel_records',
+        record.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      await txn.update(
+        'vehicles',
+        {'odometer': record.odometer},
+        where: 'id = ?',
+        whereArgs: [record.vehicleId],
+      );
+    });
   }
 
   Future<List<FuelRecord>> getFuelRecords(String vehicleId) async {
     final db = await database;
-    final result = await db.query('fuel_records',
-        where: 'vehicleId = ?',
-        whereArgs: [vehicleId],
-        orderBy: 'date DESC, odometer DESC');
-    return result.map((map) => FuelRecord.fromMap(map)).toList();
+    final result = await db.query(
+      'fuel_records',
+      where: 'vehicleId = ?',
+      whereArgs: [vehicleId],
+      orderBy: 'date DESC, odometer DESC',
+    );
+    return result.map(FuelRecord.fromMap).toList();
   }
 
   Future<FuelRecord?> getFuelRecord(String id) async {
     final db = await database;
-    final result =
-        await db.query('fuel_records', where: 'id = ?', whereArgs: [id]);
+    final result = await db.query(
+      'fuel_records',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
     if (result.isEmpty) return null;
     return FuelRecord.fromMap(result.first);
   }
 
   Future<void> updateFuelRecord(FuelRecord record) async {
     final db = await database;
-    await db.update('fuel_records', record.toMap(),
-        where: 'id = ?', whereArgs: [record.id]);
+    await db.update(
+      'fuel_records',
+      record.toMap(),
+      where: 'id = ?',
+      whereArgs: [record.id],
+    );
   }
 
   Future<void> deleteFuelRecord(String id) async {
@@ -168,20 +214,10 @@ class DatabaseHelper {
     await db.delete('fuel_records', where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<FuelRecord>> getRecordsForStats(
-      String vehicleId, int limit) async {
-    final db = await database;
-    final result = await db.query('fuel_records',
-        where: 'vehicleId = ?',
-        whereArgs: [vehicleId],
-        orderBy: 'date DESC, odometer DESC',
-        limit: limit);
-    return result.map((map) => FuelRecord.fromMap(map)).toList();
-  }
-
   Future<void> close() async {
     final db = await database;
-    db.close();
+    await db.close();
     _database = null;
+    _opening = null;
   }
 }

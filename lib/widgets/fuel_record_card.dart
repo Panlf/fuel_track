@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+
 import '../models/fuel_record.dart';
 import '../theme/app_theme.dart';
 import '../utils/fuel_utils.dart';
+import 'info_chip.dart';
 
+/// 加油记录卡片：日期/里程/金额 + 油品、油量、单价、油耗徽标 + 加油站。
 class FuelRecordCard extends StatelessWidget {
   final FuelRecord record;
   final double? consumption;
@@ -79,21 +82,29 @@ class FuelRecordCard extends StatelessWidget {
               const SizedBox(height: 12),
               Row(
                 children: [
-                  if (record.fuelType != null && record.fuelType!.isNotEmpty) ...[
-                    _buildInfoChip(Icons.local_gas_station, record.fuelType!),
+                  if (record.fuelType != null &&
+                      record.fuelType!.isNotEmpty) ...[
+                    InfoChip(
+                      icon: Icons.local_gas_station,
+                      label: record.fuelType!,
+                    ),
                     const SizedBox(width: 8),
                   ],
-                  _buildInfoChip(
-                      Icons.water_drop, '${record.liters.toStringAsFixed(2)} L'),
+                  InfoChip(
+                    icon: Icons.water_drop,
+                    label: '${record.liters.toStringAsFixed(2)} L',
+                  ),
                   const SizedBox(width: 8),
-                  _buildInfoChip(Icons.attach_money,
-                      '¥${record.pricePerLiter.toStringAsFixed(2)}/L'),
+                  InfoChip(
+                    icon: Icons.attach_money,
+                    label: '¥${record.pricePerLiter.toStringAsFixed(2)}/L',
+                  ),
                   if (consumption != null) ...[
                     const SizedBox(width: 8),
-                    _buildInfoChip(
-                      Icons.speed,
-                      '${consumption!.toStringAsFixed(2)} L/100km',
-                      color: _getConsumptionColor(consumption!),
+                    InfoChip(
+                      icon: Icons.speed,
+                      label: '${consumption!.toStringAsFixed(2)} L/100km',
+                      color: _consumptionColor(consumption!),
                     ),
                   ],
                 ],
@@ -102,7 +113,11 @@ class FuelRecordCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(Icons.place, size: 14, color: AppColors.textSecondary),
+                    const Icon(
+                      Icons.place,
+                      size: 14,
+                      color: AppColors.textSecondary,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       record.station!,
@@ -121,32 +136,8 @@ class FuelRecordCard extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoChip(IconData icon, String text, {Color? color}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: (color ?? AppColors.textSecondary).withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: color ?? AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 11,
-              color: color ?? AppColors.textSecondary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Color _getConsumptionColor(double consumption) {
+  /// 按油耗水平分级配色：≤6 优 / ≤8 良 / ≤10 中 / 更高偏差。
+  Color _consumptionColor(double consumption) {
     if (consumption <= 6) return AppColors.success;
     if (consumption <= 8) return AppColors.chartBlue;
     if (consumption <= 10) return AppColors.warning;

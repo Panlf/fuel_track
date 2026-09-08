@@ -1,3 +1,4 @@
+/// 车辆实体，对应数据表 vehicles。
 class Vehicle {
   final String id;
   final String name;
@@ -10,6 +11,7 @@ class Vehicle {
   final String? imagePath;
   final DateTime createdAt;
 
+  /// [createdAt] 缺省时取当前时间。
   Vehicle({
     required this.id,
     required this.name,
@@ -45,8 +47,8 @@ class Vehicle {
       brand: map['brand'] as String?,
       model: map['model'] as String?,
       year: map['year'] as int?,
-      fuelType: map['fuelType'] as String?,
-      tankCapacity: map['tankCapacity'] as double?,
+      // SQLite 的 REAL 列可能返回 int，统一走 num 转换避免强转崩溃
+      tankCapacity: (map['tankCapacity'] as num?)?.toDouble(),
       odometer: map['odometer'] as int? ?? 0,
       imagePath: map['imagePath'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(map['createdAt'] as int),

@@ -1,10 +1,14 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+
 import '../database/database_helper.dart';
 import '../models/vehicle.dart';
 import '../theme/app_theme.dart';
+import '../utils/vehicle_utils.dart';
+import '../widgets/info_chip.dart';
+import '../widgets/vehicle_avatar.dart';
 import 'add_edit_vehicle_screen.dart';
 
+/// 车库管理页：车辆列表、切换当前车辆、新增/编辑/删除。
 class VehicleManagementScreen extends StatefulWidget {
   final VoidCallback? onVehicleChanged;
 
@@ -28,12 +32,17 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
 
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    _vehicles = await DatabaseHelper.instance.getAllVehicles();
-    _selectedVehicleId = await DatabaseHelper.instance.getSelectedVehicleId();
-    if (_selectedVehicleId == null && _vehicles.isNotEmpty) {
-      _selectedVehicleId = _vehicles.first.id;
-      await DatabaseHelper.instance.setSelectedVehicleId(_selectedVehicleId!);
+    try {
+      _vehicles = await DatabaseHelper.instance.getAllVehicles();
+      _selectedVehicleId = await DatabaseHelper.instance.getSelectedVehicleId();
+      if (_selectedVehicleId == null && _vehicles.isNotEmpty) {
+        _selectedVehicleId = _vehicles.first.id;
+        await DatabaseHelper.instance.setSelectedVehicleId(_selectedVehicleId!);
+      }
+    } catch (e) {
+      debugPrint('Error loading vehicles: $e');
     }
+    if (!mounted) return;
     setState(() => _isLoading = false);
   }
 
@@ -79,46 +88,44 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('车库管理'),
-      ),
+      appBar: AppBar(title: const Text('车库管理')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _vehicles.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.directions_car_outlined,
-                        size: 64,
-                        color: Colors.grey.withValues(alpha: 0.4),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        '还没有添加车辆',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        '点击右下角按钮添加第一辆车',
-                        style: TextStyle(fontSize: 13, color: Colors.grey),
-                      ),
-                    ],
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.directions_car_outlined,
+                    size: 64,
+                    color: Colors.grey.withValues(alpha: 0.4),
                   ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadData,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _vehicles.length,
-                    itemBuilder: (context, index) {
-                      final vehicle = _vehicles[index];
-                      final isSelected = vehicle.id == _selectedVehicleId;
-                      return _buildVehicleCard(vehicle, isSelected);
-                    },
+                  const SizedBox(height: 16),
+                  const Text(
+                    '还没有添加车辆',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    '点击右下角按钮添加第一辆车',
+                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                  ),
+                ],
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadData,
+              child: ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: _vehicles.length,
+                itemBuilder: (context, index) {
+                  final vehicle = _vehicles[index];
+                  final isSelected = vehicle.id == _selectedVehicleId;
+                  return _buildVehicleCard(vehicle, isSelected);
+                },
+              ),
+            ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
           await Navigator.push(
@@ -142,7 +149,13 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
           padding: const EdgeInsets.all(16),
           child: Row(
             children: [
-              _buildVehicleAvatar(vehicle),
+              VehicleAvatar(
+                imagePath: vehicle.imagePath,
+                size: 64,
+                iconSize: 32,
+                backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                iconColor: AppColors.primary,
+              ),
               const SizedBox(width: 16),
               Expanded(
                 child: Column(
@@ -165,7 +178,9 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
                         if (isSelected)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 3),
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: AppColors.primary,
                               borderRadius: BorderRadius.circular(10),
@@ -183,7 +198,7 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _buildSubtitle(vehicle),
+                      VehicleUtils.subtitle(vehicle),
                       style: const TextStyle(
                         fontSize: 13,
                         color: AppColors.textSecondary,
@@ -194,12 +209,28 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
                       spacing: 8,
                       runSpacing: 4,
                       children: [
-                        _buildInfoChip(Icons.straighten,
-                            '${vehicle.odometer} km'),
+                        InfoChip(
+                          icon: Icons.straighten,
+                          label: '${vehicle.odometer} km',
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
+                          borderRadius: 6,
+                          fontWeight: FontWeight.normal,
+                        ),
                         if (vehicle.fuelType != null &&
                             vehicle.fuelType!.isNotEmpty)
-                          _buildInfoChip(
-                              Icons.local_gas_station, vehicle.fuelType!),
+                          InfoChip(
+                            icon: Icons.local_gas_station,
+                            label: vehicle.fuelType!,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            borderRadius: 6,
+                            fontWeight: FontWeight.normal,
+                          ),
                       ],
                     ),
                   ],
@@ -230,76 +261,6 @@ class _VehicleManagementScreenState extends State<VehicleManagementScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleAvatar(Vehicle vehicle) {
-    if (vehicle.imagePath != null && vehicle.imagePath!.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.file(
-          File(vehicle.imagePath!),
-          width: 64,
-          height: 64,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildDefaultAvatar(),
-        ),
-      );
-    }
-    return _buildDefaultAvatar();
-  }
-
-  Widget _buildDefaultAvatar() {
-    return Container(
-      width: 64,
-      height: 64,
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(
-        Icons.directions_car,
-        color: AppColors.primary,
-        size: 32,
-      ),
-    );
-  }
-
-  String _buildSubtitle(Vehicle vehicle) {
-    final parts = <String>[];
-    if (vehicle.brand != null && vehicle.brand!.isNotEmpty) {
-      parts.add(vehicle.brand!);
-    }
-    if (vehicle.model != null && vehicle.model!.isNotEmpty) {
-      parts.add(vehicle.model!);
-    }
-    if (vehicle.year != null) {
-      parts.add('${vehicle.year}款');
-    }
-    return parts.isEmpty ? '暂无详细信息' : parts.join(' ');
-  }
-
-  Widget _buildInfoChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-      decoration: BoxDecoration(
-        color: AppColors.textSecondary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: AppColors.textSecondary),
-          const SizedBox(width: 3),
-          Text(
-            text,
-            style: const TextStyle(
-              fontSize: 11,
-              color: AppColors.textSecondary,
-            ),
-          ),
-        ],
       ),
     );
   }

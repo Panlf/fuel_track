@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
-import '../theme/app_theme.dart';
-import '../services/fuel_price_service.dart';
 
+import '../services/fuel_price_service.dart';
+import '../theme/app_theme.dart';
+
+/// 今日油价卡片：默认收起，展开后自动定位省份并拉取油价，可手动切换省份。
 class FuelPriceCard extends StatefulWidget {
+  /// 由父级递增的刷新键，变化时（展开状态下）强制刷新油价。
   final int refreshKey;
 
   const FuelPriceCard({super.key, this.refreshKey = 0});
@@ -26,7 +29,10 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
     }
   }
 
-  Future<void> _loadFuelPrice({bool forceRefresh = false, bool useCurrentProvince = false}) async {
+  Future<void> _loadFuelPrice({
+    bool forceRefresh = false,
+    bool useCurrentProvince = false,
+  }) async {
     setState(() => _isLoading = true);
 
     try {
@@ -44,14 +50,19 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
       }
 
       if (province == null) {
-        setState(() {
-          _currentProvince = null;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _currentProvince = null;
+            _isLoading = false;
+          });
+        }
         return;
       }
 
-      final price = await FuelPriceService.fetchFuelPrice(province, forceRefresh: forceRefresh || useCurrentProvince);
+      final price = await FuelPriceService.fetchFuelPrice(
+        province,
+        forceRefresh: forceRefresh || useCurrentProvince,
+      );
       if (mounted) {
         setState(() {
           _currentProvince = province;
@@ -105,21 +116,15 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Text(
                 '选择省份',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 8),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
               child: Text(
                 '定位获取当前省份',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: AppColors.textSecondary,
-                ),
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
               ),
             ),
             const SizedBox(height: 8),
@@ -133,20 +138,30 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                   return ListTile(
                     leading: Icon(
                       Icons.location_on,
-                      color: isSelected ? AppColors.primary : AppColors.textSecondary,
+                      color: isSelected
+                          ? AppColors.primary
+                          : AppColors.textSecondary,
                       size: 20,
                     ),
                     title: Text(
                       province,
                       style: TextStyle(
-                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                        fontWeight: isSelected
+                            ? FontWeight.bold
+                            : FontWeight.normal,
+                        color: isSelected
+                            ? AppColors.primary
+                            : AppColors.textPrimary,
                       ),
                     ),
                     trailing: isSelected
-                        ? const Icon(Icons.check_circle, color: AppColors.primary, size: 20)
+                        ? const Icon(
+                            Icons.check_circle,
+                            color: AppColors.primary,
+                            size: 20,
+                          )
                         : null,
-                    onTap: () async {
+                    onTap: () {
                       Navigator.pop(ctx);
                       _currentProvince = province;
                       _loadFuelPrice(useCurrentProvince: true);
@@ -173,7 +188,7 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.local_gas_station,
                     color: AppColors.accent,
                     size: 20,
@@ -212,7 +227,7 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                   AnimatedRotation(
                     turns: _isExpanded ? 0.5 : 0,
                     duration: const Duration(milliseconds: 200),
-                    child: Icon(
+                    child: const Icon(
                       Icons.keyboard_arrow_down,
                       color: AppColors.textSecondary,
                       size: 22,
@@ -244,7 +259,7 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.location_on,
                               color: AppColors.primary,
                               size: 14,
@@ -259,7 +274,7 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            Icon(
+                            const Icon(
                               Icons.keyboard_arrow_down,
                               color: AppColors.primary,
                               size: 14,
@@ -312,12 +327,9 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
                 size: 36,
               ),
               const SizedBox(height: 12),
-              Text(
+              const Text(
                 '点击选择省份查看油价',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
               const SizedBox(height: 4),
               Text(
@@ -337,7 +349,8 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
   Widget _buildPriceGrid() {
     final now = DateTime.now();
     final fetchTime = _fuelPrice!.fetchTime;
-    final isToday = fetchTime.year == now.year &&
+    final isToday =
+        fetchTime.year == now.year &&
         fetchTime.month == now.month &&
         fetchTime.day == now.day;
 
@@ -346,11 +359,19 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
         Row(
           children: [
             Expanded(
-              child: _buildPriceItem('92号', _fuelPrice!.p92, AppColors.chartBlue),
+              child: _buildPriceItem(
+                '92号',
+                _fuelPrice!.p92,
+                AppColors.chartBlue,
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _buildPriceItem('95号', _fuelPrice!.p95, AppColors.chartOrange),
+              child: _buildPriceItem(
+                '95号',
+                _fuelPrice!.p95,
+                AppColors.chartOrange,
+              ),
             ),
           ],
         ),
@@ -358,11 +379,19 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
         Row(
           children: [
             Expanded(
-              child: _buildPriceItem('98号', _fuelPrice!.p98, AppColors.chartPurple),
+              child: _buildPriceItem(
+                '98号',
+                _fuelPrice!.p98,
+                AppColors.chartPurple,
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
-              child: _buildPriceItem('0号柴油', _fuelPrice!.p0, AppColors.chartGreen),
+              child: _buildPriceItem(
+                '0号柴油',
+                _fuelPrice!.p0,
+                AppColors.chartGreen,
+              ),
             ),
           ],
         ),
@@ -417,10 +446,7 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
           ),
           const Text(
             '/升',
-            style: TextStyle(
-              fontSize: 11,
-              color: AppColors.textSecondary,
-            ),
+            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
           ),
         ],
       ),
@@ -439,26 +465,16 @@ class _FuelPriceCardState extends State<FuelPriceCard> {
         child: Center(
           child: Column(
             children: [
-              Icon(
-                Icons.error_outline,
-                color: AppColors.error,
-                size: 32,
-              ),
+              const Icon(Icons.error_outline, color: AppColors.error, size: 32),
               const SizedBox(height: 8),
               const Text(
                 '获取油价失败',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: AppColors.textSecondary, fontSize: 14),
               ),
               const SizedBox(height: 4),
-              Text(
+              const Text(
                 '点击重试',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: AppColors.primary, fontSize: 12),
               ),
             ],
           ),

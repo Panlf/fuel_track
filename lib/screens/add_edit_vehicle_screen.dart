@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
 import '../database/database_helper.dart';
 import '../models/vehicle.dart';
 import '../theme/app_theme.dart';
 
+/// 添加/编辑车辆表单页，支持拍摄或从相册选择车辆图片。
 class AddEditVehicleScreen extends StatefulWidget {
   final Vehicle? existingVehicle;
 
@@ -29,6 +33,12 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   final _odometerController = TextEditingController();
 
   String? _imagePath;
+
+  /// 编辑会话开始时数据库引用的旧图片，仅在保存成功且被替换后才删除。
+  String? _committedImagePath;
+
+  /// 本次会话新拷贝、尚未随保存生效的图片文件，取消/失败时需清理。
+  final List<String> _unsavedCopies = [];
   bool _isSaving = false;
   final _picker = ImagePicker();
 
@@ -47,11 +57,17 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
       _tankCapacityController.text = v.tankCapacity?.toString() ?? '';
       _odometerController.text = v.odometer.toString();
       _imagePath = v.imagePath;
+      _committedImagePath = v.imagePath;
     }
   }
 
   @override
   void dispose() {
+    // 页面未保存即退出时，清理本次会话拷贝但未被引用的图片文件
+    for (final path in List<String>.from(_unsavedCopies)) {
+      _unsavedCopies.remove(path);
+      unawaited(_deleteFileQuietly(path));
+    }
     _nameController.dispose();
     _brandController.dispose();
     _modelController.dispose();
@@ -62,32 +78,43 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   }
 
   Future<void> _pickImage(ImageSource source) async {
-    final picked = await _picker.pickImage(
-      source: source,
-      maxWidth: 800,
-      maxHeight: 800,
-      imageQuality: 85,
-    );
-    if (picked == null) return;
+    try {
+      final picked = await _picker.pickImage(
+        source: source,
+        maxWidth: 800,
+        maxHeight: 800,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
 
-    final appDir = await getApplicationDocumentsDirectory();
-    final vehiclesDir = Directory('${appDir.path}/vehicle_images');
-    if (!await vehiclesDir.exists()) {
-      await vehiclesDir.create(recursive: true);
-    }
-
-    final fileName =
-        'vehicle_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.path)}';
-    final savedFile = await File(picked.path).copy('${vehiclesDir.path}/$fileName');
-
-    if (_imagePath != null && _imagePath!.isNotEmpty) {
-      final oldFile = File(_imagePath!);
-      if (await oldFile.exists()) {
-        await oldFile.delete();
+      final appDir = await getApplicationDocumentsDirectory();
+      final vehiclesDir = Directory('${appDir.path}/vehicle_images');
+      if (!await vehiclesDir.exists()) {
+        await vehiclesDir.create(recursive: true);
       }
-    }
 
-    setState(() => _imagePath = savedFile.path);
+      final fileName =
+          'vehicle_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.path)}';
+      final savedFile = await File(
+        picked.path,
+      ).copy('${vehiclesDir.path}/$fileName');
+
+      _unsavedCopies.add(savedFile.path);
+      // 此时只更新预览，不删除旧文件；旧文件在保存成功后才清理，
+      // 避免「换图后取消保存」导致数据库引用的图片失效
+      if (mounted) setState(() => _imagePath = savedFile.path);
+    } catch (e) {
+      debugPrint('选择图片失败: $e');
+    }
+  }
+
+  Future<void> _deleteFileQuietly(String path) async {
+    try {
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('删除图片文件失败: $path, $e');
+    }
   }
 
   void _showImageSourceDialog() {
@@ -103,15 +130,14 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
                 padding: EdgeInsets.all(16),
                 child: Text(
                   '选择图片来源',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library,
-                    color: AppColors.primary),
+                leading: const Icon(
+                  Icons.photo_library,
+                  color: AppColors.primary,
+                ),
                 title: const Text('从相册选择'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -119,8 +145,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.camera_alt,
-                    color: AppColors.primary),
+                leading: const Icon(Icons.camera_alt, color: AppColors.primary),
                 title: const Text('拍照'),
                 onTap: () {
                   Navigator.pop(ctx);
@@ -129,8 +154,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
               ),
               if (_imagePath != null && _imagePath!.isNotEmpty)
                 ListTile(
-                  leading:
-                      const Icon(Icons.delete, color: AppColors.error),
+                  leading: const Icon(Icons.delete, color: AppColors.error),
                   title: const Text('移除图片'),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -142,6 +166,20 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
         ),
       ),
     );
+  }
+
+  /// 保存成功后清理不再被任何数据引用的图片文件。
+  Future<void> _cleanupImagesAfterSave(String? savedImagePath) async {
+    _unsavedCopies.remove(savedImagePath);
+    final orphans = List<String>.from(_unsavedCopies);
+    _unsavedCopies.clear();
+    final committed = _committedImagePath;
+    if (committed != null && committed != savedImagePath) {
+      orphans.add(committed);
+    }
+    for (final path in orphans) {
+      await _deleteFileQuietly(path);
+    }
   }
 
   Future<void> _saveVehicle() async {
@@ -174,6 +212,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
         await DatabaseHelper.instance.insertVehicle(vehicle);
         await DatabaseHelper.instance.setSelectedVehicleId(vehicle.id);
       }
+      await _cleanupImagesAfterSave(vehicle.imagePath);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -187,14 +226,11 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存失败: $e'),
-            backgroundColor: AppColors.error,
-          ),
+          SnackBar(content: Text('保存失败: $e'), backgroundColor: AppColors.error),
         );
       }
     } finally {
-      setState(() => _isSaving = false);
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -339,20 +375,14 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
   Widget _buildBrandField() {
     return TextFormField(
       controller: _brandController,
-      decoration: const InputDecoration(
-        labelText: '品牌',
-        hintText: '例如: 丰田',
-      ),
+      decoration: const InputDecoration(labelText: '品牌', hintText: '例如: 丰田'),
     );
   }
 
   Widget _buildModelField() {
     return TextFormField(
       controller: _modelController,
-      decoration: const InputDecoration(
-        labelText: '型号',
-        hintText: '例如: 卡罗拉',
-      ),
+      decoration: const InputDecoration(labelText: '型号', hintText: '例如: 卡罗拉'),
     );
   }
 
@@ -360,10 +390,7 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
     return TextFormField(
       controller: _yearController,
       keyboardType: TextInputType.number,
-      decoration: const InputDecoration(
-        labelText: '年份',
-        hintText: '例如: 2024',
-      ),
+      decoration: const InputDecoration(labelText: '年份', hintText: '例如: 2024'),
       validator: (value) {
         if (value == null || value.isEmpty) return null;
         final n = int.tryParse(value);
@@ -450,12 +477,11 @@ class _AddEditVehicleScreenState extends State<AddEditVehicleScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await DatabaseHelper.instance
-                  .deleteVehicle(widget.existingVehicle!.id);
-              // ignore: use_build_context_synchronously
-              Navigator.pop(ctx);
-              // ignore: use_build_context_synchronously
-              Navigator.pop(context);
+              await DatabaseHelper.instance.deleteVehicle(
+                widget.existingVehicle!.id,
+              );
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) Navigator.pop(context);
             },
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),

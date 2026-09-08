@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
 import '../database/database_helper.dart';
 import '../models/fuel_record.dart';
 import '../theme/app_theme.dart';
 import '../utils/station_history.dart';
 
+/// 添加/编辑加油记录表单页。
 class AddEditFuelRecordScreen extends StatefulWidget {
   final String vehicleId;
   final FuelRecord? existingRecord;
@@ -55,10 +57,10 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
     }
   }
 
+  /// 新增时默认带入当前车辆的油品类型。
   Future<void> _loadVehicleFuelType() async {
-    if (_isEditing) return; // editing uses the record's own fuel type
-    final vehicles = await DatabaseHelper.instance.getAllVehicles();
-    final vehicle = vehicles.where((v) => v.id == widget.vehicleId).firstOrNull;
+    if (_isEditing) return; // 编辑时使用记录自身的油品
+    final vehicle = await DatabaseHelper.instance.getVehicle(widget.vehicleId);
     if (vehicle?.fuelType != null && mounted) {
       setState(() => _selectedFuelType = vehicle!.fuelType);
     }
@@ -98,15 +100,23 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
     setState(() => _isSaving = true);
 
     try {
+      // 校验已保证可解析，tryParse 仅作兜底防止异常崩溃
+      final odometer = int.tryParse(_odometerController.text);
+      final liters = double.tryParse(_litersController.text);
+      final price = double.tryParse(_priceController.text);
+      if (odometer == null || liters == null || price == null) {
+        throw const FormatException('输入的数值无法解析');
+      }
+
       final record = FuelRecord(
         id: _isEditing
             ? widget.existingRecord!.id
             : DateTime.now().millisecondsSinceEpoch.toString(),
         vehicleId: widget.vehicleId,
         date: _selectedDate,
-        odometer: int.parse(_odometerController.text),
-        liters: double.parse(_litersController.text),
-        pricePerLiter: double.parse(_priceController.text),
+        odometer: odometer,
+        liters: liters,
+        pricePerLiter: price,
         isFullTank: _isFullTank,
         fuelType: _selectedFuelType,
         station: _stationController.text.isEmpty
@@ -121,8 +131,13 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         await DatabaseHelper.instance.insertFuelRecord(record);
       }
 
-      if (_stationController.text.trim().isNotEmpty) {
-        await StationHistory.addStation(_stationController.text);
+      // 站点历史保存失败不应影响记录本身的保存结果
+      try {
+        if (_stationController.text.trim().isNotEmpty) {
+          await StationHistory.addStation(_stationController.text);
+        }
+      } catch (e) {
+        debugPrint('保存站点历史失败: $e');
       }
 
       if (mounted) {
@@ -137,14 +152,11 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('保存失败: $e'),
-            backgroundColor: AppColors.error,
-          ),
+          SnackBar(content: Text('保存失败: $e'), backgroundColor: AppColors.error),
         );
       }
     } finally {
-      setState(() => _isSaving = false);
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -322,7 +334,9 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
         value: _isFullTank,
         onChanged: (value) => setState(() => _isFullTank = value),
         secondary: Icon(
-          _isFullTank ? Icons.local_gas_station : Icons.local_gas_station_outlined,
+          _isFullTank
+              ? Icons.local_gas_station
+              : Icons.local_gas_station_outlined,
           color: _isFullTank ? AppColors.primary : AppColors.textSecondary,
         ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -424,12 +438,11 @@ class _AddEditFuelRecordScreenState extends State<AddEditFuelRecordScreen> {
           ),
           TextButton(
             onPressed: () async {
-              await DatabaseHelper.instance
-                  .deleteFuelRecord(widget.existingRecord!.id);
-              // ignore: use_build_context_synchronously
-              Navigator.pop(ctx);
-              // ignore: use_build_context_synchronously
-              Navigator.pop(context);
+              await DatabaseHelper.instance.deleteFuelRecord(
+                widget.existingRecord!.id,
+              );
+              if (ctx.mounted) Navigator.pop(ctx);
+              if (mounted) Navigator.pop(context);
             },
             child: const Text('删除', style: TextStyle(color: Colors.red)),
           ),

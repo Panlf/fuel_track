@@ -1,3 +1,4 @@
+/// 加油记录实体，对应数据表 fuel_records。
 class FuelRecord {
   final String id;
   final String vehicleId;
@@ -11,6 +12,7 @@ class FuelRecord {
   final String? station;
   final String? notes;
 
+  /// [totalCost] 缺省时按「加油量 × 单价」自动计算。
   FuelRecord({
     required this.id,
     required this.vehicleId,
@@ -24,8 +26,6 @@ class FuelRecord {
     this.station,
     this.notes,
   }) : totalCost = totalCost ?? (liters * pricePerLiter);
-
-  double? get consumptionPer100km => null;
 
   Map<String, dynamic> toMap() {
     return {
@@ -52,7 +52,8 @@ class FuelRecord {
       liters: (map['liters'] as num).toDouble(),
       pricePerLiter: (map['pricePerLiter'] as num).toDouble(),
       totalCost: (map['totalCost'] as num?)?.toDouble(),
-      isFullTank: (map['isFullTank'] as int) == 1,
+      // 数据库列为 INTEGER DEFAULT 1，历史上可能出现 NULL，缺省按满箱处理
+      isFullTank: (map['isFullTank'] as int? ?? 1) == 1,
       fuelType: map['fuelType'] as String?,
       station: map['station'] as String?,
       notes: map['notes'] as String?,
@@ -69,6 +70,11 @@ class FuelRecord {
     String? station,
     String? notes,
   }) {
+    // 只要油量或单价之一发生变化就重算总费用，
+    // 避免出现「新油量 × 旧单价」的不一致数据。
+    final newTotalCost = (liters != null || pricePerLiter != null)
+        ? (liters ?? this.liters) * (pricePerLiter ?? this.pricePerLiter)
+        : totalCost;
     return FuelRecord(
       id: id,
       vehicleId: vehicleId,
@@ -76,9 +82,7 @@ class FuelRecord {
       odometer: odometer ?? this.odometer,
       liters: liters ?? this.liters,
       pricePerLiter: pricePerLiter ?? this.pricePerLiter,
-      totalCost: liters != null && pricePerLiter != null
-          ? liters * pricePerLiter
-          : totalCost,
+      totalCost: newTotalCost,
       isFullTank: isFullTank ?? this.isFullTank,
       fuelType: fuelType ?? this.fuelType,
       station: station ?? this.station,

@@ -6,13 +6,22 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val CHANNEL = "com.github.panlf.fueltrack/location"
+
+    companion object {
+        private const val CHANNEL = "com.github.panlf.fueltrack/location"
+        private const val LOCATION_TIMEOUT_MS = 10_000L
+    }
+
+    /** 定位超时调度器，页面销毁时统一回收，避免向已分离的引擎回传结果。 */
+    private val timeoutHandler = Handler(Looper.getMainLooper())
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -26,64 +35,72 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    override fun onDestroy() {
+        timeoutHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    /**
+     * 获取一次当前位置：
+     * 1. 遍历可用提供者（北斗/GPS/网络）读取最近缓存位置（毫秒级返回）；
+     * 2. 无缓存时请求单次网络定位，[LOCATION_TIMEOUT_MS] 超时兜底。
+     */
     private fun getCurrentLocation(result: MethodChannel.Result) {
         val locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
 
-        // 检查权限
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
             && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             result.error("PERMISSION_DENIED", "定位权限未授予", null)
             return
         }
 
-        // 获取所有可用的定位提供者（支持北斗、GPS、网络等）
         val providers = locationManager.getProviders(true)
-        var bestLocation: Location? = null
 
-        // 先尝试获取上次已知位置（最快）
+        // 优先取所有提供者中缓存时间最新的位置
+        var bestLocation: Location? = null
         for (provider in providers) {
             val lastKnown = locationManager.getLastKnownLocation(provider)
-            if (lastKnown != null) {
-                if (bestLocation == null || lastKnown.time > bestLocation.time) {
-                    bestLocation = lastKnown
-                }
+            if (lastKnown != null && (bestLocation == null || lastKnown.time > bestLocation.time)) {
+                bestLocation = lastKnown
             }
         }
-
-        if (bestLocation != null) {
-            val map = hashMapOf(
-                "latitude" to bestLocation.latitude,
-                "longitude" to bestLocation.longitude,
-                "provider" to (bestLocation.provider ?: "unknown")
+        bestLocation?.let {
+            result.success(
+                mapOf(
+                    "latitude" to it.latitude,
+                    "longitude" to it.longitude,
+                    "provider" to (it.provider ?: "unknown")
+                )
             )
-            result.success(map)
             return
         }
 
-        // 没有缓存位置，请求单次定位
         if (providers.isEmpty()) {
             result.error("NO_PROVIDER", "无可用定位提供者", null)
             return
         }
 
+        // 无缓存时请求单次定位（优先网络定位，速度更快）
         val provider = if (providers.contains(LocationManager.NETWORK_PROVIDER)) {
             LocationManager.NETWORK_PROVIDER
         } else {
             providers.first()
         }
 
+        // result 只允许回调一次，called 保证超时/禁用/成功互斥
         var called = false
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
                 if (!called) {
                     called = true
                     locationManager.removeUpdates(this)
-                    val map = hashMapOf(
-                        "latitude" to location.latitude,
-                        "longitude" to location.longitude,
-                        "provider" to (location.provider ?: "unknown")
+                    result.success(
+                        mapOf(
+                            "latitude" to location.latitude,
+                            "longitude" to location.longitude,
+                            "provider" to (location.provider ?: "unknown")
+                        )
                     )
-                    result.success(map)
                 }
             }
 
@@ -101,13 +118,12 @@ class MainActivity : FlutterActivity() {
 
         locationManager.requestSingleUpdate(provider, listener, null)
 
-        // 10秒超时
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        timeoutHandler.postDelayed({
             if (!called) {
                 called = true
                 locationManager.removeUpdates(listener)
                 result.error("TIMEOUT", "定位超时", null)
             }
-        }, 10000)
+        }, LOCATION_TIMEOUT_MS)
     }
 }

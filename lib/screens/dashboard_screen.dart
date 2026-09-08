@@ -1,16 +1,22 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+
 import '../database/database_helper.dart';
-import '../models/vehicle.dart';
 import '../models/fuel_record.dart';
+import '../models/vehicle.dart';
 import '../theme/app_theme.dart';
+import '../utils/fuel_stats_calculator.dart';
 import '../utils/fuel_utils.dart';
-import '../widgets/stats_card.dart';
-import '../widgets/fuel_record_card.dart';
+import '../utils/vehicle_utils.dart';
 import '../widgets/fuel_price_card.dart';
+import '../widgets/fuel_record_card.dart';
+import '../widgets/stats_card.dart';
+import '../widgets/vehicle_avatar.dart';
 import 'add_edit_fuel_record_screen.dart';
 import 'fuel_records_screen.dart';
 
+/// 概览页：车辆信息头部、数据概览卡片、今日油价、最近加油记录。
 class DashboardScreen extends StatefulWidget {
   final VoidCallback? onDataChanged;
 
@@ -37,17 +43,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _loadData();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _loadData();
-  }
-
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
       _allVehicles = await DatabaseHelper.instance.getAllVehicles();
       if (_allVehicles.isEmpty) {
+        // 首次使用：自动创建默认车辆
         final newVehicle = Vehicle(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
           name: '我的爱车',
@@ -60,7 +61,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         _currentVehicle = newVehicle;
       } else {
         var selectedId = await DatabaseHelper.instance.getSelectedVehicleId();
-        if (selectedId == null || !_allVehicles.any((v) => v.id == selectedId)) {
+        if (selectedId == null ||
+            !_allVehicles.any((v) => v.id == selectedId)) {
           selectedId = _allVehicles.first.id;
           await DatabaseHelper.instance.setSelectedVehicleId(selectedId);
         }
@@ -68,32 +70,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
       }
 
       if (_currentVehicle != null) {
-        final records =
-            await DatabaseHelper.instance.getFuelRecords(_currentVehicle!.id);
+        final records = await DatabaseHelper.instance.getFuelRecords(
+          _currentVehicle!.id,
+        );
         _recentRecords = records.take(5).toList();
         _totalRecords = records.length;
 
-        if (records.length >= 2) {
-          final sorted = List<FuelRecord>.from(records)
-            ..sort((a, b) => a.odometer.compareTo(b.odometer));
-          final consumptions = <double>[];
-          for (int i = 1; i < sorted.length; i++) {
-            final c = FuelUtils.calculateConsumption(sorted[i - 1], sorted[i]);
-            if (c != null) consumptions.add(c);
-          }
-          if (consumptions.isNotEmpty) {
-            _avgConsumption =
-                consumptions.reduce((a, b) => a + b) / consumptions.length;
-          }
-        } else {
-          _avgConsumption = 0;
-        }
-        _totalCost = records.fold(0.0, (sum, r) => sum + r.totalCost);
-        _totalLiters = records.fold(0.0, (sum, r) => sum + r.liters);
+        final stats = FuelStatsCalculator.summarize(records);
+        _avgConsumption = stats.avgConsumption;
+        _totalCost = stats.totalCost;
+        _totalLiters = stats.totalLiters;
       }
     } catch (e) {
       debugPrint('Error loading data: $e');
     }
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       _fuelRefreshKey++;
@@ -129,26 +120,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
               padding: EdgeInsets.symmetric(horizontal: 20),
               child: Text(
                 '切换车辆',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
             const SizedBox(height: 12),
             ...(_allVehicles.map((vehicle) {
               final isSelected = vehicle.id == _currentVehicle?.id;
               return ListTile(
-                leading: _buildSheetAvatar(vehicle, 40),
+                leading: VehicleAvatar(
+                  imagePath: vehicle.imagePath,
+                  size: 40,
+                  radius: 10,
+                  iconSize: 20,
+                  backgroundColor: AppColors.primary.withValues(alpha: 0.1),
+                  iconColor: AppColors.primary,
+                ),
                 title: Text(
                   vehicle.name,
                   style: TextStyle(
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? AppColors.primary : AppColors.textPrimary,
+                    fontWeight: isSelected
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textPrimary,
                   ),
                 ),
                 subtitle: Text(
-                  _buildSubtitleText(vehicle),
+                  VehicleUtils.subtitle(vehicle),
                   style: const TextStyle(fontSize: 12),
                 ),
                 trailing: isSelected
@@ -204,9 +203,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => AddEditFuelRecordScreen(
-                vehicleId: _currentVehicle?.id ?? '',
-              ),
+              builder: (_) =>
+                  AddEditFuelRecordScreen(vehicleId: _currentVehicle?.id ?? ''),
             ),
           );
           _loadData();
@@ -218,7 +216,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildHeaderBackground() {
-    final hasImage = _currentVehicle?.imagePath != null &&
+    final hasImage =
+        _currentVehicle?.imagePath != null &&
         _currentVehicle!.imagePath!.isNotEmpty;
 
     return Stack(
@@ -259,7 +258,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _buildHeaderAvatar(),
+                          VehicleAvatar(
+                            imagePath: _currentVehicle?.imagePath,
+                            size: 48,
+                            iconSize: 26,
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.2,
+                            ),
+                            iconColor: Colors.white,
+                          ),
                           const SizedBox(width: 10),
                           Icon(
                             Icons.keyboard_arrow_down,
@@ -287,9 +294,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         ),
                         style: TextButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          backgroundColor:
-                              Colors.white.withValues(alpha: 0.15),
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          backgroundColor: Colors.white.withValues(alpha: 0.15),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
@@ -308,7 +316,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _buildSubtitleText(_currentVehicle),
+                  VehicleUtils.subtitle(
+                    _currentVehicle,
+                    nullText: '点击切换车辆',
+                    emptyText: '前往车库添加详细信息',
+                  ),
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.85),
                     fontSize: 14,
@@ -318,14 +330,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Row(
                   children: [
                     _buildHeaderChip(
-                        Icons.straighten,
-                        FuelUtils.formatOdometer(
-                            _currentVehicle?.odometer ?? 0)),
+                      Icons.straighten,
+                      FuelUtils.formatOdometer(_currentVehicle?.odometer ?? 0),
+                    ),
                     const SizedBox(width: 10),
                     if (_currentVehicle?.fuelType != null &&
                         _currentVehicle!.fuelType!.isNotEmpty)
                       _buildHeaderChip(
-                          Icons.local_gas_station, _currentVehicle!.fuelType!),
+                        Icons.local_gas_station,
+                        _currentVehicle!.fuelType!,
+                      ),
                   ],
                 ),
               ],
@@ -342,76 +356,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppColors.primary,
-            AppColors.primaryDark,
-          ],
+          colors: [AppColors.primary, AppColors.primaryDark],
         ),
-      ),
-    );
-  }
-
-  Widget _buildHeaderAvatar() {
-    if (_currentVehicle?.imagePath != null &&
-        _currentVehicle!.imagePath!.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Image.file(
-          File(_currentVehicle!.imagePath!),
-          width: 48,
-          height: 48,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildDefaultHeaderAvatar(),
-        ),
-      );
-    }
-    return _buildDefaultHeaderAvatar();
-  }
-
-  Widget _buildDefaultHeaderAvatar() {
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: const Icon(
-        Icons.directions_car,
-        color: Colors.white,
-        size: 26,
-      ),
-    );
-  }
-
-  Widget _buildSheetAvatar(Vehicle vehicle, double size) {
-    if (vehicle.imagePath != null && vehicle.imagePath!.isNotEmpty) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.file(
-          File(vehicle.imagePath!),
-          width: size,
-          height: size,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _buildDefaultSheetAvatar(size),
-        ),
-      );
-    }
-    return _buildDefaultSheetAvatar(size);
-  }
-
-  Widget _buildDefaultSheetAvatar(double size) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Icon(
-        Icons.directions_car,
-        color: AppColors.primary,
-        size: size * 0.5,
       ),
     );
   }
@@ -439,21 +385,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ],
       ),
     );
-  }
-
-  String _buildSubtitleText(Vehicle? vehicle) {
-    if (vehicle == null) return '点击切换车辆';
-    final parts = <String>[];
-    if (vehicle.brand != null && vehicle.brand!.isNotEmpty) {
-      parts.add(vehicle.brand!);
-    }
-    if (vehicle.model != null && vehicle.model!.isNotEmpty) {
-      parts.add(vehicle.model!);
-    }
-    if (vehicle.year != null) {
-      parts.add('${vehicle.year}款');
-    }
-    return parts.isEmpty ? '前往车库添加详细信息' : parts.join(' ');
   }
 
   Widget _buildQuickStats() {
@@ -511,7 +442,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: StatsCard(
                   title: '当前里程（km）',
                   value: FuelUtils.formatOdometer(
-                      _currentVehicle?.odometer ?? 0),
+                    _currentVehicle?.odometer ?? 0,
+                  ),
                   icon: Icons.straighten,
                   iconColor: AppColors.chartPurple,
                 ),
@@ -548,7 +480,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => const FuelRecordsScreen()),
+                      builder: (_) => const FuelRecordsScreen(),
+                    ),
                   );
                 },
                 child: const Text('查看全部'),
@@ -589,22 +522,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
               ),
             )
           else
-            ...(_recentRecords.map((record) => FuelRecordCard(
-                  record: record,
-                  onTap: () async {
-                    await Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AddEditFuelRecordScreen(
-                          vehicleId: _currentVehicle?.id ?? '',
-                          existingRecord: record,
-                        ),
+            ...(_recentRecords.map(
+              (record) => FuelRecordCard(
+                record: record,
+                onTap: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddEditFuelRecordScreen(
+                        vehicleId: _currentVehicle?.id ?? '',
+                        existingRecord: record,
                       ),
-                    );
-                    _loadData();
-                    widget.onDataChanged?.call();
-                  },
-                ))),
+                    ),
+                  );
+                  _loadData();
+                  widget.onDataChanged?.call();
+                },
+              ),
+            )),
           const SizedBox(height: 80),
         ],
       ),
