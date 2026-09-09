@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import 'screens/dashboard_screen.dart';
 import 'screens/fuel_records_screen.dart';
+import 'screens/gps_speed_screen.dart';
 import 'screens/statistics_screen.dart';
 import 'screens/vehicle_management_screen.dart';
 import 'theme/app_theme.dart';
@@ -32,9 +33,10 @@ class FuelTrackApp extends StatelessWidget {
   }
 }
 
-/// 主框架：底部四 Tab（概览/记录/统计/车库）。
+/// 主框架：底部五 Tab（概览/记录/统计/车库/速度）。
 ///
 /// 数据变化时递增 [_refreshKey] 重建对应页面以触发重新加载。
+/// 速度页常驻 IndexedStack 但仅在当前 Tab 激活时才订阅 GPS 与运行动画。
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -43,6 +45,8 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
+  static const int _speedTabIndex = 4;
+
   int _currentIndex = 0;
   int _refreshKey = 0;
 
@@ -66,6 +70,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
           StatisticsScreen(key: ValueKey('stats_$_refreshKey')),
           VehicleManagementScreen(onVehicleChanged: _onDataChanged),
+          GpsSpeedScreen(isActive: _currentIndex == _speedTabIndex),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -93,6 +98,11 @@ class _MainScreenState extends State<MainScreen> {
             icon: Icon(Icons.directions_car_outlined),
             selectedIcon: Icon(Icons.directions_car),
             label: '车库',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.speed_outlined),
+            selectedIcon: Icon(Icons.speed),
+            label: '速度',
           ),
         ],
       ),
