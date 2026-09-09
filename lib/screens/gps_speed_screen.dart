@@ -276,7 +276,7 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
                           signalStale: _signalStale,
                         ),
                       ),
-                      _buildDigitalReadout(),
+                      _buildDigitalReadout(side),
                     ],
                   ),
                 );
@@ -328,6 +328,8 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
+  /// 状态区：第一行为定位状态，第二行为卫星/精度/采样率三等分指标条，
+  /// 等分宽度自适应屏幕与系统字体缩放，窄屏大字体下不会溢出。
   Widget _buildStatusChips() {
     final locked = _hasFix && !_signalStale;
     final statusColor = _subscribed
@@ -339,35 +341,107 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      child: Row(
+      child: Column(
         children: [
-          _statusDot(statusColor),
-          const SizedBox(width: 6),
-          Text(
-            statusText,
-            style: TextStyle(
-              color: statusColor,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              _statusDot(statusColor),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  statusText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: statusColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (_provider.isNotEmpty) ...[
+                const SizedBox(width: 8),
+                Text(
+                  '源: $_provider',
+                  style: const TextStyle(color: Color(0xFF5A6578), fontSize: 11),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF141A26),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFF232B3C)),
+            ),
+            child: Row(
+              children: [
+                _buildMetricCell(
+                  Icons.satellite_alt,
+                  '卫星',
+                  _satellites > 0 ? '$_satellites 颗' : '—',
+                ),
+                _metricDivider(),
+                _buildMetricCell(
+                  Icons.gps_fixed,
+                  '精度',
+                  _accuracy > 0 ? '±${_accuracy.toStringAsFixed(1)}m' : '—',
+                ),
+                _metricDivider(),
+                _buildMetricCell(
+                  Icons.speed,
+                  '采样率',
+                  '${_sampleHz.toStringAsFixed(1)} Hz',
+                ),
+              ],
             ),
           ),
-          if (_provider.isNotEmpty) ...[
-            const SizedBox(width: 10),
-            Text(
-              '源: $_provider',
-              style: const TextStyle(color: Color(0xFF5A6578), fontSize: 11),
+        ],
+      ),
+    );
+  }
+
+  Widget _metricDivider() =>
+      Container(width: 1, height: 30, color: const Color(0xFF232B3C));
+
+  Widget _buildMetricCell(IconData icon, String label, String value) {
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6),
+        child: Column(
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 11, color: const Color(0xFF8A93A6)),
+                const SizedBox(width: 3),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: Color(0xFF8A93A6),
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 2),
+            // FittedBox 兜底：极端长值时缩放而不是溢出
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  color: Color(0xFFB8C0D0),
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFeatures: [FontFeature.tabularFigures()],
+                ),
+              ),
             ),
           ],
-          const Spacer(),
-          _buildChip(
-            Icons.satellite_alt,
-            _satellites > 0 ? '$_satellites 颗卫星' : '卫星 —',
-          ),
-          const SizedBox(width: 8),
-          _buildChip(Icons.gps_fixed, _accuracy > 0 ? '±${_accuracy.toStringAsFixed(1)}m' : '±—'),
-          const SizedBox(width: 8),
-          _buildChip(Icons.speed, '${_sampleHz.toStringAsFixed(1)} Hz'),
-        ],
+        ),
       ),
     );
   }
@@ -384,27 +458,9 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
-  Widget _buildChip(IconData icon, String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: const Color(0xFF141A26),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF232B3C)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: const Color(0xFF8A93A6)),
-          const SizedBox(width: 4),
-          Text(text, style: const TextStyle(color: Color(0xFFB8C0D0), fontSize: 11)),
-        ],
-      ),
-    );
-  }
-
-  /// 表盘中央数字读数。
-  Widget _buildDigitalReadout() {
+  /// 表盘中央数字读数，尺寸随表盘边长等比缩放；
+  /// FittedBox 兜底：极端大字体下整体等比缩小不溢出。
+  Widget _buildDigitalReadout(double side) {
     final fraction = (_displaySpeed / _kGaugeMax).clamp(0.0, 1.0);
     final color = fraction >= _kRedline / _kGaugeMax
         ? const Color(0xFFFF1744)
@@ -413,58 +469,67 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
             : Colors.white;
 
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           Text(
             _displaySpeed.round().toString(),
             style: TextStyle(
-              fontSize: 72,
+              fontSize: side * 0.20,
               height: 1.0,
               fontWeight: FontWeight.w900,
               color: color,
               fontFeatures: [FontFeature.tabularFigures()],
               shadows: [
-                Shadow(color: color.withValues(alpha: 0.45), blurRadius: 24),
+                Shadow(
+                  color: color.withValues(alpha: 0.45),
+                  blurRadius: side * 0.067,
+                ),
               ],
             ),
           ),
-          const SizedBox(height: 2),
-          const Text(
+          SizedBox(height: side * 0.006),
+          Text(
             'km/h',
             style: TextStyle(
-              fontSize: 15,
-              color: Color(0xFF8A93A6),
-              letterSpacing: 6,
+              fontSize: side * 0.042,
+              color: const Color(0xFF8A93A6),
+              letterSpacing: side * 0.017,
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: side * 0.028),
           // 红线警示条
           AnimatedOpacity(
             opacity: fraction >= _kRedline / _kGaugeMax ? 1 : 0,
             duration: const Duration(milliseconds: 200),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              padding: EdgeInsets.symmetric(
+                horizontal: side * 0.028,
+                vertical: side * 0.008,
+              ),
               decoration: BoxDecoration(
                 color: const Color(0xFFFF1744).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(side * 0.028),
                 border: Border.all(
                   color: const Color(0xFFFF1744).withValues(alpha: 0.5),
                 ),
               ),
-              child: const Text(
+              child: Text(
                 'REDLINE',
                 style: TextStyle(
-                  color: Color(0xFFFF1744),
-                  fontSize: 10,
+                  color: const Color(0xFFFF1744),
+                  fontSize: side * 0.028,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 3,
+                  letterSpacing: side * 0.008,
                 ),
               ),
             ),
           ),
-        ],
+          ],
+        ),
       ),
     );
   }
