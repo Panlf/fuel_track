@@ -257,10 +257,8 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
           child: Center(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final side = math.min(
-                  constraints.maxWidth,
-                  math.min(constraints.maxHeight, 360.0),
-                );
+                // 不设上限，表盘吃满剩余空间成为页面主体
+                final side = math.min(constraints.maxWidth, constraints.maxHeight);
                 return SizedBox(
                   width: side,
                   height: side,
@@ -458,8 +456,8 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
-  /// 表盘中央数字读数，尺寸随表盘边长等比缩放；
-  /// FittedBox 兜底：极端大字体下整体等比缩小不溢出。
+  /// 数字读数：主体速度值放大展示，置于表盘 270° 开口的下方空区，
+  /// 不遮挡表盘中心；REDLINE 警示与单位同行，进入红线时出现。
   Widget _buildDigitalReadout(double side) {
     final fraction = (_displaySpeed / _kGaugeMax).clamp(0.0, 1.0);
     final color = fraction >= _kRedline / _kGaugeMax
@@ -467,77 +465,82 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
         : fraction >= 0.6
             ? const Color(0xFFFFEA00)
             : Colors.white;
+    final inRedline = fraction >= _kRedline / _kGaugeMax;
 
-    return Center(
+    return Align(
+      alignment: const Alignment(0, 0.58),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-          Text(
-            _displaySpeed.round().toString(),
-            style: TextStyle(
-              fontSize: side * 0.20,
-              height: 1.0,
-              fontWeight: FontWeight.w900,
-              color: color,
-              fontFeatures: [FontFeature.tabularFigures()],
-              shadows: [
-                Shadow(
-                  color: color.withValues(alpha: 0.45),
-                  blurRadius: side * 0.067,
+            Text(
+              _displaySpeed.round().toString(),
+              style: TextStyle(
+                fontSize: side * 0.22,
+                height: 1.0,
+                fontWeight: FontWeight.w900,
+                color: color,
+                fontFeatures: [FontFeature.tabularFigures()],
+                shadows: [
+                  Shadow(
+                    color: color.withValues(alpha: 0.45),
+                    blurRadius: side * 0.08,
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(height: side * 0.012),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  'km/h',
+                  style: TextStyle(
+                    fontSize: side * 0.045,
+                    color: const Color(0xFF8A93A6),
+                    letterSpacing: side * 0.016,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
+                if (inRedline) ...[
+                  SizedBox(width: side * 0.03),
+                  Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: side * 0.025,
+                      vertical: side * 0.007,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF1744).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(side * 0.026),
+                      border: Border.all(
+                        color: const Color(0xFFFF1744).withValues(alpha: 0.5),
+                      ),
+                    ),
+                    child: Text(
+                      'REDLINE',
+                      style: TextStyle(
+                        color: const Color(0xFFFF1744),
+                        fontSize: side * 0.026,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: side * 0.006,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
-          ),
-          SizedBox(height: side * 0.006),
-          Text(
-            'km/h',
-            style: TextStyle(
-              fontSize: side * 0.042,
-              color: const Color(0xFF8A93A6),
-              letterSpacing: side * 0.017,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          SizedBox(height: side * 0.028),
-          // 红线警示条
-          AnimatedOpacity(
-            opacity: fraction >= _kRedline / _kGaugeMax ? 1 : 0,
-            duration: const Duration(milliseconds: 200),
-            child: Container(
-              padding: EdgeInsets.symmetric(
-                horizontal: side * 0.028,
-                vertical: side * 0.008,
-              ),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFF1744).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(side * 0.028),
-                border: Border.all(
-                  color: const Color(0xFFFF1744).withValues(alpha: 0.5),
-                ),
-              ),
-              child: Text(
-                'REDLINE',
-                style: TextStyle(
-                  color: const Color(0xFFFF1744),
-                  fontSize: side * 0.028,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: side * 0.008,
-                ),
-              ),
-            ),
-          ),
           ],
         ),
       ),
     );
   }
 
-  /// 加速/制动 G 值条。
+  /// 加速/制动 G 值条（紧凑单行）。
   Widget _buildGForceBar() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
       child: Column(
         children: [
           Row(
@@ -545,26 +548,26 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
             children: [
               const Text(
                 '制动',
-                style: TextStyle(color: Color(0xFF5A6578), fontSize: 11),
+                style: TextStyle(color: Color(0xFF5A6578), fontSize: 10),
               ),
               Text(
                 '${_gForce >= 0 ? '+' : ''}${_gForce.toStringAsFixed(2)} G',
                 style: TextStyle(
                   color: _gForce >= 0 ? const Color(0xFF00E676) : const Color(0xFFFF5252),
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: FontWeight.bold,
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
               ),
               const Text(
                 '加速',
-                style: TextStyle(color: Color(0xFF5A6578), fontSize: 11),
+                style: TextStyle(color: Color(0xFF5A6578), fontSize: 10),
               ),
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           SizedBox(
-            height: 16,
+            height: 10,
             width: double.infinity,
             child: CustomPaint(painter: _GForceBarPainter(gForce: _gForce)),
           ),
@@ -573,16 +576,16 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
-  /// 60 秒实时速度轨迹。
+  /// 60 秒实时速度轨迹（压缩高度，把空间让给表盘主体）。
   Widget _buildTelemetry() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
-        height: 120,
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+        height: 84,
+        padding: const EdgeInsets.fromLTRB(12, 7, 12, 4),
         decoration: BoxDecoration(
           color: const Color(0xFF0D1119),
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFF1C2333)),
         ),
         child: Column(
@@ -590,7 +593,7 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
           children: [
             const Text(
               '实时速度轨迹 · 60s',
-              style: TextStyle(color: Color(0xFF5A6578), fontSize: 11, letterSpacing: 1),
+              style: TextStyle(color: Color(0xFF5A6578), fontSize: 10, letterSpacing: 1),
             ),
             Expanded(
               child: CustomPaint(
@@ -604,52 +607,53 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
+  /// 底部统计：单行紧凑布局。
   Widget _buildBottomStats() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
       child: Row(
         children: [
-          _buildStatCard('最高速度', _maxSpeed, 'km/h', const Color(0xFFFF6B35)),
+          _buildSlimStat('最高', _maxSpeed, const Color(0xFFFF6B35)),
           const SizedBox(width: 8),
-          _buildStatCard('平均速度', _avgSpeed, 'km/h', const Color(0xFF00E5FF)),
+          _buildSlimStat('平均', _avgSpeed, const Color(0xFF00E5FF)),
           const SizedBox(width: 8),
-          _buildStatCard(
-            '当前速度',
-            _displaySpeed,
-            'km/h',
-            const Color(0xFF00E676),
-          ),
+          _buildSlimStat('当前', _displaySpeed, const Color(0xFF00E676)),
         ],
       ),
     );
   }
 
-  Widget _buildStatCard(String label, double value, String unit, Color color) {
+  Widget _buildSlimStat(String label, double value, Color color) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: color.withValues(alpha: 0.25)),
         ),
-        child: Column(
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
               label,
-              style: TextStyle(color: color.withValues(alpha: 0.8), fontSize: 11),
+              style: TextStyle(color: color.withValues(alpha: 0.85), fontSize: 11),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(width: 6),
             Text(
               value.toStringAsFixed(0),
               style: TextStyle(
                 color: color,
-                fontSize: 22,
+                fontSize: 17,
                 fontWeight: FontWeight.w900,
                 fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
-            Text(unit, style: TextStyle(color: color.withValues(alpha: 0.6), fontSize: 10)),
+            const SizedBox(width: 2),
+            Text(
+              'km/h',
+              style: TextStyle(color: color.withValues(alpha: 0.55), fontSize: 9),
+            ),
           ],
         ),
       ),
