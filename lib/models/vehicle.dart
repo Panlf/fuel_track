@@ -47,6 +47,7 @@ class Vehicle {
       brand: map['brand'] as String?,
       model: map['model'] as String?,
       year: map['year'] as int?,
+      fuelType: map['fuelType'] as String?,
       // SQLite 的 REAL 列可能返回 int，统一走 num 转换避免强转崩溃
       tankCapacity: (map['tankCapacity'] as num?)?.toDouble(),
       odometer: map['odometer'] as int? ?? 0,
