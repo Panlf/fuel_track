@@ -19,6 +19,12 @@ class SpeedReading {
   /// 平滑后纵向加速度（G），加速为正、制动为负。
   final double gForce;
 
+  /// 平滑后横向加速度（G），右转为正、左转为负。
+  final double lateralG;
+
+  /// 本次会话累计行驶路程（米）。
+  final double totalDistanceM;
+
   /// 本帧位移低于噪声门限，视为静止。
   final bool isNoise;
 
@@ -28,6 +34,8 @@ class SpeedReading {
     required this.maxKmh,
     required this.avgKmh,
     required this.gForce,
+    required this.lateralG,
+    required this.totalDistanceM,
     required this.isNoise,
   });
 }
@@ -73,6 +81,7 @@ class GpsSpeedCalculator {
   GpsFix? _lastFix;
   double _smoothedMs = 0;
   double _smoothedG = 0;
+  double _smoothedLatG = 0;
   double _maxKmh = 0;
   double _totalDistanceM = 0;
   double _totalTimeS = 0;
@@ -133,6 +142,20 @@ class GpsSpeedCalculator {
     final rawG = (_smoothedMs - prevSmoothedMs) / dtS / gravityMs2;
     _smoothedG = (_smoothedG + gAlpha * (rawG - _smoothedG)).clamp(-1.5, 1.5);
 
+    // 横向加速度（G）：a = v·ω，ω 为航向角变化率（rad/s）。
+    // 低速时 bearing 噪声大，仅在行驶（速度 > 2 m/s）时计算；
+    // 单帧航向变化超过 90° 视为卫星重捕获导致的航向跳变，直接丢弃。
+    double rawLatG = 0;
+    if (!isNoise && _smoothedMs > 2) {
+      final dBearingDeg = _wrapDeg180(fix.bearing - last.bearing);
+      if (dBearingDeg.abs() < 90) {
+        final omega = dBearingDeg * math.pi / 180 / dtS;
+        rawLatG = _smoothedMs * omega / gravityMs2;
+      }
+    }
+    _smoothedLatG =
+        (_smoothedLatG + gAlpha * (rawLatG - _smoothedLatG)).clamp(-1.5, 1.5);
+
     final speedKmh = _smoothedMs * 3.6;
     if (speedKmh > _maxKmh) _maxKmh = speedKmh;
 
@@ -145,11 +168,13 @@ class GpsSpeedCalculator {
       maxKmh: _maxKmh,
       avgKmh: _totalTimeS > 0 ? (_totalDistanceM / _totalTimeS) * 3.6 : 0,
       gForce: _smoothedG,
+      lateralG: _smoothedLatG,
+      totalDistanceM: _totalDistanceM,
       isNoise: isNoise,
     );
   }
 
-  /// 清空会话统计（当前速度平滑值保留，仅重置最高/平均）。
+  /// 清空会话统计（当前速度平滑值保留，最高/平均/路程全部归零）。
   void resetStats() {
     _maxKmh = 0;
     _totalDistanceM = 0;
@@ -157,4 +182,12 @@ class GpsSpeedCalculator {
   }
 
   static double _degToRad(double deg) => deg * math.pi / 180.0;
+
+  /// 将角度差归一化到 [-180, 180)，处理 0°/360° 跨越。
+  static double _wrapDeg180(double deg) {
+    deg = deg % 360;
+    if (deg > 180) deg -= 360;
+    if (deg < -180) deg += 360;
+    return deg;
+  }
 }

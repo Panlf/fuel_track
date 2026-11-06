@@ -20,8 +20,9 @@ const int _kTelemetryWindowS = 60;
 
 /// GPS 竞速仪表盘 Tab：GNSS 高频差分测速 + 赛车风格霓虹速度表。
 ///
-/// 仅在 Tab 激活时订阅高频定位流并运行动画（切走即暂停省电，切回恢复
-/// 且统计不重置）；两两坐标 Haversine 差分计算速度；激活期间保持屏幕常亮。
+/// 仅在 Tab 激活时订阅高频定位流并运行动画（切走即暂停省电）；页面不
+/// 留历史数据——每次进入（切 Tab 回来或重开 App）所有统计从 0 开始，
+/// 「重置」按钮同样全量归零；激活期间保持屏幕常亮。
 class GpsSpeedScreen extends StatefulWidget {
   const GpsSpeedScreen({super.key, this.isActive = true});
 
@@ -55,10 +56,24 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
   double _maxSpeed = 0;
   double _avgSpeed = 0;
   double _gForce = 0;
+  double _lateralG = 0; // 横向 G，右转为正
+  double _distanceM = 0; // 本次会话累计行驶路程（米）
   double _maxFlash = 0; // 刷新最高速度时的爆发高光（1→0 衰减）
 
   // 遥测缓冲：(时间, 平滑速度)
   final List<(DateTime, double)> _telemetry = [];
+
+  // G 球全程拖尾：(横向 G, 纵向 G)。G 盘是封闭圆形，轨迹不会超出量程，
+  // 无需像速度轨迹那样做 60s 滚动窗口，本次页面会话内全程保留，
+  // 仅在手动重置或切 Tab（全量重置）时清空。
+  final List<(double, double)> _gTrail = [];
+
+  /// 拖尾采样阈值：新点距上一记录点超过该值（合 G 空间）才追加，
+  /// 过滤静止漂移与匀速巡航的重复点，控制点数规模。
+  static const double _kGTrailMinStep = 0.04;
+
+  /// 拖尾硬上限（极端长时间激烈驾驶的内存保护，超出丢弃最旧点）。
+  static const int _kGTrailMaxPoints = 6000;
 
   // 逐帧动画
   Ticker? _ticker;
@@ -91,9 +106,11 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     super.dispose();
   }
 
-  /// Tab 激活：恢复指针动画与定位流（统计跨切换保留）。
+  /// Tab 激活：恢复指针动画与定位流；页面不留历史数据，
+  /// 每次进入所有统计（最高/平均/路程/G 值/轨迹）全部从 0 开始。
   void _activate() {
     _lastTick = null;
+    _resetAllStats();
     if (!_ticker!.isActive) _ticker!.start();
     if (_permissionGranted) {
       _subscribe();
@@ -181,6 +198,22 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
           _targetSpeed = reading.speedKmh;
           _avgSpeed = reading.avgKmh;
           _gForce = reading.gForce;
+          _lateralG = reading.lateralG;
+          _distanceM = reading.totalDistanceM;
+
+          // G 球拖尾：与上一记录点距离超过阈值才记录，全程保留
+          final last = _gTrail.isEmpty ? null : _gTrail.last;
+          final dLat = _lateralG - (last?.$1 ?? 0);
+          final dLon = _gForce - (last?.$2 ?? 0);
+          if (last == null ||
+              dLat * dLat + dLon * dLon >
+                  _kGTrailMinStep * _kGTrailMinStep) {
+            _gTrail.add((_lateralG, _gForce));
+            if (_gTrail.length > _kGTrailMaxPoints) {
+              _gTrail.removeAt(0);
+            }
+          }
+
           if (reading.speedKmh > _maxSpeed + 0.5 && reading.speedKmh >= 5) {
             _maxSpeed = reading.speedKmh;
             _maxFlash = 1.0;
@@ -211,14 +244,24 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     if (mounted) setState(() {});
   }
 
+  /// 重置按钮：页面所有统计数据归零。
   void _resetStats() {
+    setState(_resetAllStats);
+  }
+
+  /// 全量重置：最高/平均/路程/G 值/采样率/遥测轨迹清空。
+  /// 进入页面（Tab 激活）与手动重置共用。
+  void _resetAllStats() {
     _calculator.resetStats();
-    if (!mounted) return;
-    setState(() {
-      _maxSpeed = 0;
-      _avgSpeed = 0;
-      _telemetry.clear();
-    });
+    _maxSpeed = 0;
+    _avgSpeed = 0;
+    _distanceM = 0;
+    _gForce = 0;
+    _lateralG = 0;
+    _maxFlash = 0;
+    _fixTimes.clear();
+    _telemetry.clear();
+    _gTrail.clear();
   }
 
   bool get _signalStale =>
@@ -282,7 +325,7 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
             ),
           ),
         ),
-        _buildGForceBar(),
+        _buildGBall(),
         _buildTelemetry(),
         _buildBottomStats(),
       ],
@@ -537,43 +580,118 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     );
   }
 
-  /// 加速/制动 G 值条（紧凑单行）。
-  Widget _buildGForceBar() {
+  /// G 球卡片：左侧圆形 G-G 球（横向 G 左右、纵向 G 上下），
+  /// 右侧当前行驶路程大读数与横/纵 G 数值。
+  Widget _buildGBall() {
+    final latColor = _gColor(_lateralG.abs());
+    final lonColor = _gColor(_gForce.abs());
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 4),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                '制动',
-                style: TextStyle(color: Color(0xFF5A6578), fontSize: 10),
-              ),
-              Text(
-                '${_gForce >= 0 ? '+' : ''}${_gForce.toStringAsFixed(2)} G',
-                style: TextStyle(
-                  color: _gForce >= 0 ? const Color(0xFF00E676) : const Color(0xFFFF5252),
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  fontFeatures: [FontFeature.tabularFigures()],
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Container(
+        height: 104,
+        padding: const EdgeInsets.fromLTRB(10, 8, 14, 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0D1119),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF1C2333)),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 88,
+              height: 88,
+              child: CustomPaint(
+                painter: _GBallPainter(
+                  latG: _lateralG,
+                  lonG: _gForce,
+                  pulse: _elapsedS,
+                  trail: _gTrail,
                 ),
               ),
-              const Text(
-                '加速',
-                style: TextStyle(color: Color(0xFF5A6578), fontSize: 10),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text(
+                    '当前行驶路程',
+                    style: TextStyle(
+                      color: Color(0xFF5A6578),
+                      fontSize: 10,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        _formatDistance(_distanceM),
+                        style: const TextStyle(
+                          color: Color(0xFF00E5FF),
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _distanceM >= 1000 ? 'km' : 'm',
+                        style: const TextStyle(
+                          color: Color(0xFF5A6578),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Text(
+                        '横 ${_lateralG >= 0 ? '+' : ''}${_lateralG.toStringAsFixed(2)}G',
+                        style: TextStyle(
+                          color: latColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Text(
+                        '纵 ${_gForce >= 0 ? '+' : ''}${_gForce.toStringAsFixed(2)}G',
+                        style: TextStyle(
+                          color: lonColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
-          ),
-          const SizedBox(height: 3),
-          SizedBox(
-            height: 10,
-            width: double.infinity,
-            child: CustomPaint(painter: _GForceBarPainter(gForce: _gForce)),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
+  }
+
+  /// 按 |G| 分档取色：<0.5 绿，<1.0 黄，其余红。
+  Color _gColor(double absG) {
+    if (absG < 0.5) return const Color(0xFF00E676);
+    if (absG < 1.0) return const Color(0xFFFFEA00);
+    return const Color(0xFFFF1744);
+  }
+
+  /// 路程格式化：≥1km 显示公里（两位小数），否则显示整米。
+  String _formatDistance(double m) {
+    if (m >= 1000) return (m / 1000).toStringAsFixed(2);
+    return m.toStringAsFixed(0);
   }
 
   /// 60 秒实时速度轨迹（压缩高度，把空间让给表盘主体）。
@@ -1076,70 +1194,232 @@ class _SpeedometerPainter extends CustomPainter {
       old.signalStale != signalStale;
 }
 
-// ==================== G 值条绘制 ====================
+// ==================== G 球绘制 ====================
 
-/// 加速/制动 G 值条：中零点，右绿（加速）左红（制动）。
-class _GForceBarPainter extends CustomPainter {
-  _GForceBarPainter({required this.gForce});
+/// 圆形 G-G 球：球心位置 = (横向 G, 纵向 G)，
+/// 上加速、下制动，左转球向左、右转球向右；
+/// 0.5G / 1.0G / 1.5G 三档同心环，按合 G 大小变色。
+/// 附全程拖尾：本次会话内所有 G 点连成轨迹（盘为封闭圆形不会超出，
+/// 无需滚动窗口），重置或切 Tab 才清空。
+class _GBallPainter extends CustomPainter {
+  _GBallPainter({
+    required this.latG,
+    required this.lonG,
+    required this.pulse,
+    required this.trail,
+  });
 
-  final double gForce;
-  static const double _range = 1.0;
+  final double latG;
+  final double lonG;
+
+  /// 页面累计秒数，驱动待机时球体呼吸辉光。
+  final double pulse;
+
+  /// 全程拖尾采样：(横向 G, 纵向 G)，会话内持续累计。
+  final List<(double, double)> trail;
+
+  static const double _range = 1.5;
+
+  /// G 值 → 盘面坐标：径向 clamp。单轴超出 1.5G 或合 G 超出量程时，
+  /// 保持方向不变、把向量整体缩到圆边上，确保任何点都不会画出圆外。
+  /// （旧实现两轴各自独立 clamp，对角方向的合向量会落到 √2 倍半径处越界。）
+  Offset _mapG(double latG, double lonG, Offset center, double radius) {
+    var nx = latG / _range;
+    var ny = -lonG / _range; // 屏幕向上为加速
+    final mag = math.sqrt(nx * nx + ny * ny);
+    if (mag > 1.0) {
+      nx /= mag;
+      ny /= mag;
+    }
+    return Offset(center.dx + nx * radius, center.dy + ny * radius);
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
-    final track = RRect.fromRectAndRadius(
-      Offset.zero & size,
-      const Radius.circular(8),
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = math.min(size.width, size.height) / 2 * 0.92;
+
+    _paintPad(canvas, center, radius);
+    _paintTrail(canvas, center, radius);
+    _paintBall(canvas, center, radius);
+  }
+
+  /// 圆形垫盘：底色、同心环、十字线与上下方位标签。
+  void _paintPad(Canvas canvas, Offset center, double radius) {
+    // 深色底盘 + 中心微光
+    canvas.drawCircle(
+      center,
+      radius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [const Color(0xFF141B29), const Color(0xFF0A0E16)],
+        ).createShader(Rect.fromCircle(center: center, radius: radius)),
     );
-    canvas.drawRRect(track, Paint()..color = const Color(0xFF141A26));
-    canvas.drawRRect(
-      track,
+
+    // 同心环：0.5G / 1.0G 细环，1.5G（外沿）实线
+    final ring = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = const Color(0xFF1C2333);
+    canvas.drawCircle(
+      center,
+      radius * (0.5 / _range),
+      ring,
+    );
+    canvas.drawCircle(
+      center,
+      radius * (1.0 / _range),
+      ring,
+    );
+    canvas.drawCircle(
+      center,
+      radius,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 1
-        ..color = const Color(0xFF232B3C),
+        ..strokeWidth = 1.5
+        ..color = const Color(0xFF2A3242),
     );
 
-    // 刻度线（每 0.5G）
-    final tick = Paint()
-      ..strokeWidth = 1
-      ..color = const Color(0xFF232B3C);
-    for (final g in [-0.5, 0.0, 0.5]) {
-      final x = size.width * (0.5 + g / (2 * _range));
-      canvas.drawLine(Offset(x, 3), Offset(x, size.height - 3), tick);
+    // 十字线（横纵零轴）
+    canvas.drawLine(
+      Offset(center.dx - radius, center.dy),
+      Offset(center.dx + radius, center.dy),
+      ring,
+    );
+    canvas.drawLine(
+      Offset(center.dx, center.dy - radius),
+      Offset(center.dx, center.dy + radius),
+      ring,
+    );
+
+    // 方位标签：上加速、下制动
+    for (final (label, dy) in [('加速', -1.0), ('制动', 1.0)]) {
+      final tp = TextPainter(
+        text: TextSpan(
+          text: label,
+          style: const TextStyle(
+            color: Color(0xFF5A6578),
+            fontSize: 8,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      tp.paint(
+        canvas,
+        Offset(
+          center.dx - tp.width / 2,
+          center.dy + dy * (radius - 1) - tp.height / 2 * (dy + 1) - (dy < 0 ? 1 : 0),
+        ),
+      );
+    }
+  }
+
+  /// 全程拖尾：历史 G 点连成青色半透明轨迹，越靠近当前点越亮。
+  void _paintTrail(Canvas canvas, Offset center, double radius) {
+    if (trail.isEmpty) return;
+
+    final path = Path();
+    final first = _mapG(trail.first.$1, trail.first.$2, center, radius);
+    path.moveTo(first.dx, first.dy);
+    for (final p in trail.skip(1)) {
+      final o = _mapG(p.$1, p.$2, center, radius);
+      path.lineTo(o.dx, o.dy);
     }
 
-    final clamped = gForce.clamp(-_range, _range);
-    final halfW = size.width / 2 * (clamped.abs() / _range);
-    if (halfW < 1) return;
-    final rect = clamped >= 0
-        ? Rect.fromLTWH(size.width / 2, 3, halfW, size.height - 6)
-        : Rect.fromLTWH(size.width / 2 - halfW, 3, halfW, size.height - 6);
-    final color = clamped >= 0 ? const Color(0xFF00E676) : const Color(0xFFFF5252);
-    canvas.drawRRect(
-      RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+    // 底层辉光 + 主体线
+    canvas.drawPath(
+      path,
       Paint()
-        ..shader = LinearGradient(
-          colors: [
-            color.withValues(alpha: 0.9),
-            color.withValues(alpha: 0.35),
-          ],
-        ).createShader(rect)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2),
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFF00E5FF).withValues(alpha: 0.18)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.5
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round
+        ..color = const Color(0xFF00E5FF).withValues(alpha: 0.45),
     );
 
-    // 中零点高亮
-    canvas.drawLine(
-      Offset(size.width / 2, 2),
-      Offset(size.width / 2, size.height - 2),
+    // 最近一小段渐亮（越接近当前球越亮），表现"刚刚经历的 G 值"
+    const recentCount = 24;
+    final recent = trail.length < 2
+        ? const <(double, double)>[]
+        : trail.sublist(math.max(0, trail.length - recentCount));
+    for (var i = 1; i < recent.length; i++) {
+      final a = _mapG(recent[i - 1].$1, recent[i - 1].$2, center, radius);
+      final b = _mapG(recent[i].$1, recent[i].$2, center, radius);
+      final t = i / math.max(1, recent.length - 1);
+      canvas.drawLine(
+        a,
+        b,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.5 + t * 1.5
+          ..color = Color.lerp(
+            const Color(0xFF00E5FF).withValues(alpha: 0.45),
+            Colors.white.withValues(alpha: 0.85),
+            t,
+          )!,
+      );
+    }
+  }
+
+  /// G 球本体：位置映射 + 辉光 + 径向渐变球体，静止时呼吸微光。
+  void _paintBall(Canvas canvas, Offset center, double radius) {
+    final pos = _mapG(latG, lonG, center, radius * 0.96);
+
+    final combined = math.sqrt(latG * latG + lonG * lonG);
+    final color = combined < 0.5
+        ? const Color(0xFF00E676)
+        : combined < 1.0
+            ? const Color(0xFFFFEA00)
+            : const Color(0xFFFF1744);
+
+    final ballRadius = radius * 0.17;
+    final idleBreath = combined < 0.05
+        ? 0.5 + 0.5 * math.sin(pulse * 2 * math.pi * 0.6)
+        : 1.0;
+
+    // 外层辉光
+    canvas.drawCircle(
+      pos,
+      ballRadius * 1.9,
       Paint()
-        ..strokeWidth = 2
-        ..color = const Color(0xFF8A93A6),
+        ..color = color.withValues(alpha: 0.30 * idleBreath)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
+    );
+    // 球体
+    canvas.drawCircle(
+      pos,
+      ballRadius,
+      Paint()
+        ..shader = RadialGradient(
+          colors: [Colors.white, color],
+          stops: const [0.25, 1.0],
+        ).createShader(Rect.fromCircle(center: pos, radius: ballRadius)),
+    );
+    // 中心高光点
+    canvas.drawCircle(
+      pos - Offset(ballRadius * 0.25, ballRadius * 0.25),
+      ballRadius * 0.22,
+      Paint()..color = Colors.white.withValues(alpha: 0.85),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _GForceBarPainter old) => old.gForce != gForce;
+  bool shouldRepaint(covariant _GBallPainter old) =>
+      old.latG != latG ||
+      old.lonG != lonG ||
+      old.pulse != pulse ||
+      old.trail.length != trail.length;
 }
 
 // ==================== 遥测曲线绘制 ====================
