@@ -588,7 +588,7 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: Container(
-        height: 104,
+        height: 120,
         padding: const EdgeInsets.fromLTRB(10, 8, 14, 8),
         decoration: BoxDecoration(
           color: const Color(0xFF0D1119),
@@ -598,13 +598,12 @@ class _GpsSpeedScreenState extends State<GpsSpeedScreen>
         child: Row(
           children: [
             SizedBox(
-              width: 88,
-              height: 88,
+              width: 104,
+              height: 104,
               child: CustomPaint(
-                painter: _GBallPainter(
+                painter: GBallPainter(
                   latG: _lateralG,
                   lonG: _gForce,
-                  pulse: _elapsedS,
                   trail: _gTrail,
                 ),
               ),
@@ -1198,29 +1197,25 @@ class _SpeedometerPainter extends CustomPainter {
 
 /// 圆形 G-G 球：球心位置 = (横向 G, 纵向 G)，
 /// 上加速、下制动，左转球向左、右转球向右；
-/// 0.5G / 1.0G / 1.5G 三档同心环，按合 G 大小变色。
+/// 1.0G / 2.0G 两档同心环，纯绿色小球。
 /// 附全程拖尾：本次会话内所有 G 点连成轨迹（盘为封闭圆形不会超出，
 /// 无需滚动窗口），重置或切 Tab 才清空。
-class _GBallPainter extends CustomPainter {
-  _GBallPainter({
+class GBallPainter extends CustomPainter {
+  GBallPainter({
     required this.latG,
     required this.lonG,
-    required this.pulse,
     required this.trail,
   });
 
   final double latG;
   final double lonG;
 
-  /// 页面累计秒数，驱动待机时球体呼吸辉光。
-  final double pulse;
-
   /// 全程拖尾采样：(横向 G, 纵向 G)，会话内持续累计。
   final List<(double, double)> trail;
 
-  static const double _range = 1.5;
+  static const double _range = 2.0;
 
-  /// G 值 → 盘面坐标：径向 clamp。单轴超出 1.5G 或合 G 超出量程时，
+  /// G 值 → 盘面坐标：径向 clamp。单轴超出 2.0G 或合 G 超出量程时，
   /// 保持方向不变、把向量整体缩到圆边上，确保任何点都不会画出圆外。
   /// （旧实现两轴各自独立 clamp，对角方向的合向量会落到 √2 倍半径处越界。）
   Offset _mapG(double latG, double lonG, Offset center, double radius) {
@@ -1256,16 +1251,11 @@ class _GBallPainter extends CustomPainter {
         ).createShader(Rect.fromCircle(center: center, radius: radius)),
     );
 
-    // 同心环：0.5G / 1.0G 细环，1.5G（外沿）实线
+    // 同心环：1.0G 细环，2.0G（外沿）实线
     final ring = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
       ..color = const Color(0xFF1C2333);
-    canvas.drawCircle(
-      center,
-      radius * (0.5 / _range),
-      ring,
-    );
     canvas.drawCircle(
       center,
       radius * (1.0 / _range),
@@ -1280,13 +1270,15 @@ class _GBallPainter extends CustomPainter {
         ..color = const Color(0xFF2A3242),
     );
 
-    // 十字线（横纵零轴）
-    canvas.drawLine(
+    // 十字线（横纵零轴）：虚线
+    _drawDashedLine(
+      canvas,
       Offset(center.dx - radius, center.dy),
       Offset(center.dx + radius, center.dy),
       ring,
     );
-    canvas.drawLine(
+    _drawDashedLine(
+      canvas,
       Offset(center.dx, center.dy - radius),
       Offset(center.dx, center.dy + radius),
       ring,
@@ -1312,6 +1304,19 @@ class _GBallPainter extends CustomPainter {
           center.dy + dy * (radius - 1) - tp.height / 2 * (dy + 1) - (dy < 0 ? 1 : 0),
         ),
       );
+    }
+  }
+
+  /// 虚线段：dash 3px、间隔 3px，沿直线均匀绘制。
+  void _drawDashedLine(Canvas canvas, Offset start, Offset end, Paint paint) {
+    const dashLen = 3.0;
+    const gapLen = 3.0;
+    final total = (end - start).distance;
+    if (total <= 0) return;
+    final unit = (end - start) / total;
+    for (var d = 0.0; d < total; d += dashLen + gapLen) {
+      final segEnd = math.min(d + dashLen, total);
+      canvas.drawLine(start + unit * d, start + unit * segEnd, paint);
     }
   }
 
@@ -1372,53 +1377,24 @@ class _GBallPainter extends CustomPainter {
     }
   }
 
-  /// G 球本体：位置映射 + 辉光 + 径向渐变球体，静止时呼吸微光。
+  /// G 球本体：位置映射 + 纯色绿色小球，无辉光。
   void _paintBall(Canvas canvas, Offset center, double radius) {
     final pos = _mapG(latG, lonG, center, radius * 0.96);
 
-    final combined = math.sqrt(latG * latG + lonG * lonG);
-    final color = combined < 0.5
-        ? const Color(0xFF00E676)
-        : combined < 1.0
-            ? const Color(0xFFFFEA00)
-            : const Color(0xFFFF1744);
+    final ballRadius = radius * 0.10;
 
-    final ballRadius = radius * 0.17;
-    final idleBreath = combined < 0.05
-        ? 0.5 + 0.5 * math.sin(pulse * 2 * math.pi * 0.6)
-        : 1.0;
-
-    // 外层辉光
-    canvas.drawCircle(
-      pos,
-      ballRadius * 1.9,
-      Paint()
-        ..color = color.withValues(alpha: 0.30 * idleBreath)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10),
-    );
-    // 球体
+    // 球体：纯绿色实心圆
     canvas.drawCircle(
       pos,
       ballRadius,
-      Paint()
-        ..shader = RadialGradient(
-          colors: [Colors.white, color],
-          stops: const [0.25, 1.0],
-        ).createShader(Rect.fromCircle(center: pos, radius: ballRadius)),
-    );
-    // 中心高光点
-    canvas.drawCircle(
-      pos - Offset(ballRadius * 0.25, ballRadius * 0.25),
-      ballRadius * 0.22,
-      Paint()..color = Colors.white.withValues(alpha: 0.85),
+      Paint()..color = const Color(0xFF00E676),
     );
   }
 
   @override
-  bool shouldRepaint(covariant _GBallPainter old) =>
+  bool shouldRepaint(covariant GBallPainter old) =>
       old.latG != latG ||
       old.lonG != lonG ||
-      old.pulse != pulse ||
       old.trail.length != trail.length;
 }
 
